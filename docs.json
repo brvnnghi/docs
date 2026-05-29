@@ -21,6 +21,25 @@
   "navigation": {
     "tabs": [
       {
+        "tab": "Next.js",
+        "groups": [
+          {
+            "group": "Giới thiệu",
+            "pages": [
+              "nextjs/index",
+              "hoc-next-js-bay-gio-co-muon-khong-140",
+              "9-ieu-co-ban-au-tien-khi-en-voi-next-js-126"
+            ]
+          },
+          {
+            "group": "Cơ bản",
+            "pages": [
+              "lam-quen-voi-fetch-du-lieu-loading-error-not-found-trong-next-127"
+            ]
+          }
+        ]
+      },
+      {
         "tab": "Onboarding",
         "groups": [
           {
@@ -147,19 +166,6 @@
               "engineering/architecture/index",
               "engineering/architecture/services-overview",
               "engineering/architecture/data-models"
-            ]
-          }
-        ]
-      },
-      {
-        "tab": "Next.js",
-        "groups": [
-          {
-            "group": "Giới thiệu",
-            "pages": [
-              "nextjs/index",
-              "hoc-next-js-bay-gio-co-muon-khong-140",
-              "9-ieu-co-ban-au-tien-khi-en-voi-next-js-126"
             ]
           }
         ]

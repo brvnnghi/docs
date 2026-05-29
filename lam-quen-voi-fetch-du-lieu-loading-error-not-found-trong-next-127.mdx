@@ -1,0 +1,263 @@
+---
+title: "Làm quen với Fetch dữ liệu, Loading, Error & Not Found trong Next"
+description: "Lấy dữ liệu từ server và xử lý các trạng thái đi kèm: loading, lỗi, và trang không tồn tại."
+sidebarTitle: "Fetch dữ liệu"
+---
+
+Trong bài trước chúng ta đã làm quen với cấu trúc thư mục và App Router của Next.js. Hôm nay đi vào phần thực tế hơn: **lấy dữ liệu từ server**, và xử lý các trạng thái đi kèm — loading, lỗi, và trang không tồn tại.
+
+## Fetch dữ liệu trong Server Component
+
+Next.js mặc định mọi component đều là **Server Component** — tức là chúng chạy trên server, không phải trên trình duyệt. Nhờ đó, bạn có thể **kết nối thẳng vào database** và query dữ liệu ngay bên trong component, không cần tạo API route trung gian.
+
+```typescript
+// src/db/queries.ts
+import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { drizzle } from "drizzle-orm/d1";
+import { sitemapEntries } from "@/db/schema";
+
+// lấy env có typed từ cloudflare
+const { env } = await getCloudflareContext({ async: true });
+
+export async function getSitemapEntries() {
+  // khởi tạo kết nối đến D1 database
+  const db = drizzle(env.DB);
+  return await db.select().from(sitemapEntries).all();
+}
+```
+
+Sau đó dùng ngay trong component, chỉ cần thêm `async`:
+
+```tsx
+// app/page.tsx
+import { getSitemapEntries } from "@/db/queries";
+
+// nhớ chuyển function thành async
+export default async function Home() {
+  const entries = await getSitemapEntries();
+
+  return (
+    <ol>
+      {entries.map((entry) => (
+        <li key={entry.id}>{entry.url}</li>
+      ))}
+    </ol>
+  );
+}
+```
+
+> Lưu ý: Nếu bạn cần lấy dữ liệu từ **API bên ngoài** (third-party), vẫn có thể dùng `fetch()` trong Server Component — không cần `useEffect`.\
+> Chỉ dùng `useEffect` khi component đó là **Client Component** (`'use client'`).
+
+### Vậy khi nào thực sự **bắt buộc** phải dùng `useEffect` trong Client Component?
+
+**1. Cần tương tác với browser API**\
+Những thứ chỉ tồn tại trong trình duyệt — `localStorage`, `sessionStorage`, `navigator`, `window`, `document`. Server không có những thứ này, nên không thể chạy ở Server Component.
+
+```tsx
+'use client';
+useEffect(() => {
+  const theme = localStorage.getItem('theme');
+  setTheme(theme);
+}, []);
+```
+
+**2. Fetch dữ liệu phụ thuộc vào hành động của người dùng (sau khi trang đã load)**\
+Server Component chỉ chạy một lần khi render. Nếu bạn cần re-fetch dựa trên input của người dùng — tìm kiếm live-search, infinite scroll, autocomplete — thì phải ở client.
+
+```tsx
+'use client';
+useEffect(() => {
+  fetch(`/api/search?q=${query}`).then(...);
+}, [query]); // chạy lại mỗi khi query thay đổi
+```
+
+**3. Subscribe vào real-time data**\
+WebSocket, SSE (Server-Sent Events), hoặc các subscription như Firebase/Supabase realtime — những thứ cần kết nối liên tục trong suốt vòng đời component.
+
+```tsx
+'use client';
+useEffect(() => {
+  const channel = supabase.channel('messages').on(...).subscribe();
+  return () => channel.unsubscribe(); // cleanup khi unmount
+}, []);
+```
+
+**4. Tích hợp thư viện bên thứ ba cần DOM**\
+Nhiều thư viện JS (chart, map, rich text editor…) cần DOM node thực sự mới khởi tạo được — không thể chạy trên server.
+
+```tsx
+'use client';
+useEffect(() => {
+  const chart = new Chart(canvasRef.current, { ... });
+  return () => chart.destroy();
+}, []);
+```
+
+**Tóm lại là…**
+
+| Column 1 | Column 2 |
+| :-- | :-- |
+| Tình huống | Dùng gì |
+| Fetch data lúc load trang | Server Component (\+ `Suspense` nếu cần) |
+| Fetch lại khi user thao tác | `useEffect` trong Client Component |
+| Cần `window`, `localStorage`… | `useEffect` trong Client Component |
+| Real-time / WebSocket | `useEffect` trong Client Component |
+| Thư viện cần DOM | `useEffect` trong Client Component |
+
+Ranh giới rõ ràng nhất là: **Server Component fetch là one-shot khi render — còn** `useEffect` **là để phản ứng với những thứ xảy ra** **_sau đó_** **trên trình duyệt.**
+
+## Hiển thị loading với `loading.tsx`
+
+Next.js có một file reserved là `loading.tsx`. Đặt nó cùng thư mục với `page.tsx`, Next sẽ tự động hiển thị component này trong khi trang đang chờ dữ liệu.
+
+```tsx
+// app/loading.tsx
+export default function Loading() {
+  return (
+    <div className="flex min-h-screen items-center justify-center">
+      <p>Đang tải...</p>
+    </div>
+  );
+}
+```
+
+Cách này đơn giản, nhưng có một hạn chế: nó **ẩn toàn bộ trang** trong lúc loading — kể cả những phần tĩnh không cần chờ dữ liệu.
+
+### Dùng `<Suspense>` để loading đúng chỗ
+
+Giải pháp tốt hơn là tách phần cần dữ liệu thành một component riêng, rồi bọc nó bằng `<Suspense>`:
+
+```tsx
+// app/page.tsx
+import { Suspense } from "react";
+import { getSitemapEntries } from "@/db/queries";
+
+// lấy dữ liệu trong 1 component mới
+async function SitemapEntries() {
+  const entries = await getSitemapEntries();
+  return (
+    <ol>
+      {entries.map((entry) => (
+        <li key={entry.id}>{entry.url}</li>
+      ))}
+    </ol>
+  );
+}
+
+// Home không cần async nữa
+export default function Home() {
+  return (
+    <main>
+      <h1>Sitemap</h1>
+      <Suspense fallback={<p>Đang tải danh sách...</p>}>
+        <SitemapEntries />
+      </Suspense>
+    </main>
+  );
+}
+```
+
+Như vậy, tiêu đề `<h1>` hiển thị ngay lập tức, chỉ có danh sách bên dưới mới chờ — đúng behavior mà người dùng mong đợi.
+
+## Xử lý lỗi với `error.tsx`
+
+Tương tự, Next.js có file reserved `error.tsx` để bắt lỗi xảy ra trong quá trình render:
+
+```tsx
+// app/error.tsx
+
+// error boundary hoạt động ở phía client
+'use client'; // bắt buộc phải có
+
+export default function Error({
+  error,
+  reset,
+}: {
+  error: Error;
+  reset: () => void;
+}) {
+  return (
+    <div>
+      <h2>Có lỗi xảy ra!</h2>
+      <p>{error.message}</p>
+      <button onClick={reset}>Thử lại</button>
+    </div>
+  );
+}
+```
+
+Có hai điểm quan trọng:
+
+- **Phải thêm** `**'use client'**` ở đầu file — đây là yêu cầu bắt buộc của Next.js vì error boundary hoạt động ở phía client.
+- Component nhận vào prop `error` (để hiển thị thông điệp lỗi) và `reset` (để thử render lại).
+
+## Xử lý 404 với `not-found.tsx`
+
+Khi một trang hoặc resource không tồn tại, dùng file `not-found.tsx` để tạo template 404:
+
+```tsx
+// app/not-found.tsx
+export default function NotFound() {
+  return (
+    <div>
+      <h1>404 — Không tìm thấy trang</h1>
+      <p>Trang bạn đang tìm không tồn tại.</p>
+    </div>
+  );
+}
+```
+
+Sau đó, **dùng** `notFound()` **khi route hợp lệ nhưng data không tồn** tại — thường gặp nhất ở dynamic routes, import từ `next/navigation`:
+
+```tsx
+import { notFound } from 'next/navigation';
+
+export default async function NewsDetail({ params }: { params: { slug: string } }) {
+  const news = await getNewsBySlug(params.slug);
+
+  if (!news) {
+    notFound(); // tự động dùng not-found.tsx gần nhất
+  }
+
+  return <article>{news.title}</article>;
+}
+```
+
+File `not-found.tsx` có thể đặt ở nhiều cấp khác nhau:
+
+```text
+app/
+├── not-found.tsx          ← catch-all cho toàn app
+├── news/
+│   ├── [slug]/
+│   │   └── page.tsx
+│   └── not-found.tsx      ← chỉ cho route /news/*
+└── page.tsx
+```
+
+Next.js sẽ dùng file `not-found.tsx` **gần nhất** với nơi gọi `notFound()`.
+
+## Lưu ý thực tế (production)
+
+`loading.tsx` **vs** `<Suspense>`\
+Dùng `loading.tsx` cho các trang có toàn bộ nội dung phụ thuộc vào data (trang dashboard, trang danh sách). Dùng `<Suspense>` khi trang có cả phần tĩnh lẫn phần động — đây là pattern được khuyến nghị nhiều hơn vì UX tốt hơn.
+
+`error.tsx` **nên có nút “Thử lại”**\
+Prop `reset` cho phép re-render lại segment hiện tại mà không cần reload toàn trang. Đây là chi tiết nhỏ nhưng cải thiện UX đáng kể, đừng bỏ qua.
+
+**Không log thông tin nhạy cảm ra** `error.message`\
+Ở production, `error.message` đôi khi có thể chứa thông tin nội bộ (tên bảng, connection string…). Nên log đầy đủ ở server (dùng `console.error` hoặc dịch vụ như Sentry), còn hiển thị ra UI chỉ nên là thông điệp chung chung.
+
+**Scope** `not-found.tsx` **cẩn thận**\
+Đặt `not-found.tsx` ở `app/` sẽ override trang 404 mặc định của Next — hãy đảm bảo nó đủ thông tin, có link về trang chủ, và không quá “trống”.
+
+## Tóm tắt
+
+| Column 1 | Column 2 | Column 3 |
+| :-- | :-- | :-- |
+| File | Mục đích | Lưu ý |
+| `loading.tsx` | Hiển thị skeleton/spinner khi trang đang load | Ẩn toàn bộ trang — cân nhắc dùng `<Suspense>` thay thế |
+| `<Suspense>` | Loading có chọn lọc theo từng component | Linh hoạt hơn `loading.tsx`, ưu tiên dùng |
+| `error.tsx` | Bắt lỗi runtime trong route segment | **Bắt buộc** `'use client'` |
+| `not-found.tsx` | Hiển thị trang 404 | Dùng cùng `notFound()` từ `next/navigation` |
