@@ -1,0 +1,281 @@
+---
+title: "9 điều cơ bản đầu tiên khi đến với Next.js"
+description: "Next.js không thay thế React — nó là một framework xây dựng trên nền React, bổ sung những thứ mà React “vanilla” không có sẵn: Server-Side Rendering (SSR), file-based routing, tối ưu hình ảnh, và nhiều hơn nữa."
+sidebarTitle: "9 điều cơ bản"
+---
+
+Bạn đã quen với React — tạo component, quản lý state, render UI. Nhưng khi ứng dụng cần SEO tốt hơn, tốc độ tải trang nhanh hơn, hay routing không cần cài thêm thư viện… bạn bắt đầu nghe đến **Next.js**.
+
+Next.js không thay thế React — nó là một framework _xây dựng trên nền React_, bổ sung những thứ mà React “vanilla” không có sẵn: Server-Side Rendering (SSR), file-based routing, tối ưu hình ảnh, và nhiều hơn nữa.
+
+Bài viết này tóm tắt 11 khái niệm cốt lõi bạn sẽ gặp ngay trong bất cứ buổi học đầu tiên nào về Next.js.
+
+## 1. Làm quen với “file-based routing”: tạo route bằng folder
+
+Với React Router, bạn phải khai báo route bằng code.
+
+Next.js làm điều đó theo cách khác: **cấu trúc thư mục chính là routing**.
+
+```text
+/app
+├── page.js          → example.com/
+├── /about
+│   └── page.js      → example.com/about
+└── /blog
+    ├── page.js      → example.com/blog
+    └── /post-1
+        └── page.js  → example.com/blog/post-1
+```
+
+Mỗi thư mục là một segment của URL. Muốn có route mới? Tạo thư mục mới và đặt `page.js` bên trong.
+
+## 2. Hai “reserved files” quan trọng nhất: `page.js` và `layout.js`
+
+Next.js có một hệ thống **reserved filenames** — những tên file đặc biệt mà framework nhận ra và xử lý theo cách riêng.
+
+```text
+/app
+├── layout.js        ← app shell (master layout, bao toàn bộ app)
+├── page.js
+└── /about
+    ├── layout.js    ← nested layout, chỉ áp dụng cho /about
+    └── page.js
+```
+
+Hai file cơ bản nhất:
+
+- `**page.js**` — định nghĩa nội dung của một trang, đây là file bắt buộc để một route được render.
+- `**layout.js**` — định nghĩa “khung” bao quanh trang, ví dụ header, footer, sidebar. Layout lồng nhau (nested layout) cũng được hỗ trợ — `layout.js` trong thư mục con chỉ áp dụng cho trang đó và các trang con của nó.
+
+Trong `layout.js` thường có metadata, thẻ `<html>` và `<body>`, và `{children}` — placeholder để render các trang con.
+
+## 3. Các reserved filenames khác cần biết
+
+Next.js còn nhiều tên file đặc biệt khác:
+
+| Column 1 | Column 2 |
+| :-- | :-- |
+| File | Tác dụng |
+| `not-found.js` | Hiển thị khi route không tồn tại (lỗi 404) |
+| `error.js` | Fallback khi có lỗi xảy ra |
+| `loading.js` | Hiển thị trong khi trang đang fetch data |
+| `route.js` | Tạo API endpoint (trả về JSON, không phải JSX) |
+| `icon.png` | Tự động dùng làm favicon |
+
+Chi tiết đầy đủ tại [tài liệu chính thức của Next.js](https://nextjs.org/docs/app/api-reference/file-conventions).
+
+## 4. Component `<Link>` — navigate thông minh hơn
+
+Thay vì dùng thẻ `<a>` thông thường, Next.js cung cấp component `<Link>`:
+
+```jsx
+import Link from 'next/link';
+
+<Link href="/about">About</Link>
+```
+
+Điểm hay của việc sử dụng Link là khi truy cập trực tiếp vào URL, Next.js sẽ **SSR** (render phía server).
+
+Khi bạn đang đứng trong ứng dụng và click link, nó chuyển sang **CSR** — chỉ load phần component của route mới, không reload toàn trang. Tốt nhất của cả hai thế giới.
+
+## 5. Dynamic Routes — route với tham số động
+
+Để xử lý các URL dạng `/blog/post-1`, `/blog/post-2`… bạn có thể dùng **dynamic segment** bằng cách đặt tên thư mục trong dấu ngoặc vuông:
+
+```text
+/app
+└── /blog
+    ├── page.js
+    └── /[slug]
+        └── page.js   → example.com/blog/:slug
+```
+
+Trong component, `params` được truyền vào như một prop mặc định:
+
+```jsx
+export default function BlogDetail({ params }) {
+  return <p>{params.slug}</p>;
+}
+```
+
+## 6. Tổ chức file — `/components` nên đặt ngoài `/app`
+
+Thư mục `/app` chỉ nên chứa các routing files. Custom components nên đặt **bên ngoài** thư mục `/app`:
+
+```text
+/app
+├── layout.js
+└── page.js
+
+/components       ← đặt ở ngoài /app
+└── header.js
+```
+
+Lý do: thư mục trong `/app` mà không có `page.js` sẽ không tạo ra route — nhưng để tránh nhầm lẫn, tốt hơn là tách biệt hoàn toàn.
+
+Để import cho gọn, dùng **path alias** `@` bằng cách cấu hình `jsconfig.json`:
+
+```json
+{
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./*"]
+    }
+  }
+}
+```
+
+Sau đó import như sau: `import Header from '@/components/header'`.
+
+## 7. CSS Modules — tránh xung đột class name
+
+Bên cạnh `global.css` như mọi app, Next.js hỗ trợ sẵn CSS Modules. Mỗi component có file CSS riêng:
+
+```text
+/components
+├── header.js
+└── header.module.css
+```
+
+```jsx
+import classes from '@/components/header.module.css';
+
+<Link className={classes.logo} href="/">Home</Link>
+```
+
+Class name sẽ được tự động scope theo component, tránh hoàn toàn việc “trùng tên class” giữa các component khác nhau.
+
+## 8. Component `<Image>` — tối ưu hình ảnh tự động
+
+Đừng dùng thẻ `<img>` thông thường trong Next.js. Hãy dùng `<Image>` từ `next/image`:
+
+```jsx
+import Image from 'next/image';
+import logo from '@/assets/logo.png';
+
+<Image src={logo} priority />
+```
+
+Next.js tự động xử lý: lazy loading, tối ưu chất lượng và kích thước, sinh `srcset` cho responsive…
+
+Thêm prop `priority` cho những ảnh quan trọng (hiển thị ngay khi load trang, không lazy load).
+
+> **Lưu ý quan trọng:** Chỉ những ảnh được **import tĩnh** (xử lý lúc build time) mới tận dụng được đầy đủ tính năng này.\
+> Ảnh lấy từ database lúc runtime sẽ không có sẵn metadata `width`, `height` — bạn cần truyền thủ công hoặc dùng prop `fill`.
+
+## 9. Server Components và Client Components
+
+Đây là khái niệm **khác biệt lớn nhất** so với React thuần.
+
+- Với `create-react-app`, tất cả component đều là **Client Components** — chạy trên browser.
+- Với Next.js, tất cả component **mặc định là React Server Components (RSC)** — render phía server.
+
+Bằng chứng đơn giản: thử `console.log` trong một component Next.js — bạn sẽ thấy log xuất hiện ở terminal của dev server, **không phải** trong DevTools của browser.
+
+### Sử dụng `'use client'` để khai báo Client Component
+
+Do đó, khi bạn cần dùng các React hook như `useState`, `useEffect`, `usePathname`… bạn **bắt buộc** phải khai báo component đó là Client Component:
+
+```jsx
+'use client';
+
+import { useState, useEffect } from 'react';
+import Image from 'next/image';
+
+import burgerImg from '@/assets/burger.jpg';
+import curryImg from '@/assets/curry.jpg';
+import dumplingsImg from '@/assets/dumplings.jpg';
+
+const images = [
+  { image: burgerImg, alt: 'A delicious, juicy burger' },
+  { image: curryImg, alt: 'A delicious, spicy curry' },
+  { image: dumplingsImg, alt: 'Steamed dumplings' },
+];
+
+export default function ImageSlideshow() {
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentImageIndex((prevIndex) =>
+        prevIndex < images.length - 1 ? prevIndex + 1 : 0
+      );
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className={classes.slideshow}>
+      {images.map((image, index) => (
+        <Image
+          key={index}
+          src={image.image}
+          className={index === currentImageIndex ? classes.active : ''}
+          alt={image.alt}
+        />
+      ))}
+    </div>
+  );
+}
+```
+
+Nếu quên khai báo `'use client'`, Next.js sẽ báo lỗi ngay:
+
+```text
+You're importing a component that needs useState. 
+This only works in a Client Component...
+```
+
+### Quy tắc: Đặt `'use client'` đúng chỗ, càng sâu càng tốt
+
+**Một sai lầm phổ biến: đặt** `**'use client'**` **ở component cha, kéo theo toàn bộ cây component bên dưới trở thành Client Component — mất đi lợi ích của SSR.**
+
+**Best practice:** tách logic cần client-side ra thành component con riêng, đặt `'use client'` ở đó, và dùng nó trong Server Component:
+
+```jsx
+// nav-link.js — client component nhỏ gọn
+'use client';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+
+export default function NavLink({ href, children }) {
+  const path = usePathname();
+  return (
+    <Link href={href} className={path.startsWith(href) ? 'active' : ''}>
+      {children}
+    </Link>
+  );
+}
+```
+
+```jsx
+// header.js — vẫn là Server Component
+// nếu đặt 'use client' ở header để sử dụng được 'usePathname', sẽ biến header thành client-component
+import NavLink from './nav-link';
+
+export default function Header() {
+  return (
+    <nav>
+      <NavLink href="/about">About</NavLink>
+      <NavLink href="/blog">Blog</NavLink>
+    </nav>
+  );
+}
+```
+
+Nguyên tắc: **chỉ “client hoá” những gì thực sự cần tương tác phía client**.
+
+## Tổng kết
+
+Sau buổi đầu tiên với Next.js, bạn đã nắm được những nền tảng quan trọng:
+
+- **Routing** dựa trên cấu trúc thư mục, với các reserved files như `page.js`, `layout.js`, `error.js`…
+- `<Link>` để navigate thông minh giữa SSR và CSR
+- **Dynamic routes** với `[slug]`
+- **Tổ chức dự án** với `/components` bên ngoài `/app`, dùng `@` alias
+- **CSS Modules** để scope style theo component
+- `<Image>` để tối ưu hình ảnh tự động
+- **Server vs Client Components** — mặc định là Server, dùng `'use client'` khi cần hook, và đặt càng sâu càng tốt
+
+Chủ đề tiếp theo: [**Data Fetching**](https://coda.io/d/_dINStbw4UsM/_sudiga0V).
