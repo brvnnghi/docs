@@ -1,7 +1,7 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "theme": "sequoia",
-  "name": "Knowledge base",
+  "name": "You Học Code",
   "description": "Onboarding, employee handbook, HR guides, IT help, company policies, and department runbooks.",
   "colors": {
     "primary": "#166E3F",
@@ -147,6 +147,18 @@
               "engineering/architecture/index",
               "engineering/architecture/services-overview",
               "engineering/architecture/data-models"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Next.js",
+        "groups": [
+          {
+            "group": "Giới thiệu",
+            "pages": [
+              "nextjs/index",
+              "hoc-next-js-bay-gio-co-muon-khong-140"
             ]
           }
         ]
