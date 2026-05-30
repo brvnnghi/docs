@@ -1,0 +1,235 @@
+---
+title: "10 câu hỏi phỏng vấn Next.js thường gặp"
+description: "Tổng hợp 10 câu hỏi phỏng vấn Next.js phổ biến từ junior đến mid-level, kèm gợi ý trả lời ngắn gọn, dễ nhớ và bám sát thực tế production."
+sidebarTitle: "10 câu hỏi phỏng vấn"
+keywords: ["Next.js", "Interview", "Phỏng vấn"]
+---
+
+Bạn vừa hoàn thành một project Next.js, tự tin apply vào vị trí Frontend Developer. Đến vòng technical, nhà tuyển dụng hỏi: _"Sự khác nhau giữa Server Component và Client Component là gì? Khi nào bạn dùng cái nào?"_ — bạn ấp úng vì lâu nay chỉ copy `'use client'` lên đầu file cho... chắc ăn.
+
+Next.js là framework rất "hot" trong các buổi phỏng vấn Frontend hiện nay, nhưng câu hỏi thường xoay quanh **một số ít chủ đề cốt lõi**. Nắm chắc chúng, bạn sẽ tự tin trả lời được 80% các vòng phỏng vấn.
+
+Dưới đây là 10 câu hỏi phổ biến nhất, kèm gợi ý cách trả lời ngắn gọn — vừa đủ để gây ấn tượng, không lan man.
+
+## 1. Next.js là gì? Khác gì so với React?
+
+Đây gần như là câu "khởi động" trong mọi buổi phỏng vấn.
+
+**Gợi ý trả lời:**
+
+- **React** là một thư viện UI, chỉ lo phần render component phía client.
+- **Next.js** là một framework xây trên React, bổ sung những thứ React thuần không có sẵn: file-based routing, Server-Side Rendering (SSR), Static Site Generation (SSG), tối ưu hình ảnh, API Routes, và gần đây nhất là **React Server Components**.
+
+Nói ngắn gọn: _React lo phần UI, Next.js lo phần "còn lại" của một ứng dụng web hoàn chỉnh — routing, rendering, fetching, deployment._
+
+## 2. Phân biệt CSR, SSR, SSG và ISR
+
+Câu này kiểm tra bạn có thực sự hiểu **các chiến lược render** hay không.
+
+| Chiến lược | Khi nào render? | Use case |
+| :-- | :-- | :-- |
+| **CSR** (Client-Side Rendering) | Trong browser, sau khi JS tải xong | Dashboard nội bộ, không cần SEO |
+| **SSR** (Server-Side Rendering) | Trên server, mỗi request | Trang có data thay đổi liên tục, cần SEO |
+| **SSG** (Static Site Generation) | Lúc build | Blog, landing page, docs |
+| **ISR** (Incremental Static Regeneration) | Lúc build \+ revalidate định kỳ | E-commerce, news — cập nhật không quá thường xuyên |
+
+**Mẹo trả lời:** nhấn mạnh rằng trong App Router (Next.js 13\+), bạn không còn dùng `getServerSideProps` hay `getStaticProps` nữa — mà điều khiển bằng `fetch` options (`cache`, `next.revalidate`) và **Server Components**.
+
+## 3. Server Components và Client Components khác nhau ở đâu?
+
+Đây là câu **dễ bị hỏi nhất** với Next.js 13\+.
+
+**Gợi ý trả lời:**
+
+- **Server Component** (mặc định): chạy trên server, không gửi JS xuống client → bundle nhỏ hơn, fetch data trực tiếp được, không dùng được hook (`useState`, `useEffect`).
+- **Client Component**: phải khai báo `'use client'` ở đầu file. Chạy trên browser, dùng được hook, event handler, browser API.
+
+**Nguyên tắc vàng:** đặt `'use client'` **càng sâu trong cây component càng tốt**. Chỉ "client hoá" những phần thực sự cần tương tác.
+
+```jsx
+// ❌ Sai: client hoá cả Header chỉ vì cần usePathname trong NavLink
+'use client';
+export default function Header() { /* ... */ }
+
+// ✅ Đúng: tách NavLink ra component riêng
+// header.js (Server Component)
+import NavLink from './nav-link';
+
+// nav-link.js (Client Component)
+'use client';
+import { usePathname } from 'next/navigation';
+```
+
+## 4. File-based routing hoạt động thế nào? Khác gì Pages Router?
+
+**Gợi ý trả lời:**
+
+Next.js dùng **cấu trúc thư mục làm routing**. Trong App Router:
+
+- Mỗi thư mục = một segment URL.
+- File `page.js` (hoặc `page.tsx`) định nghĩa nội dung trang.
+- File `layout.js` định nghĩa khung bao quanh, hỗ trợ **nested layouts**.
+- Các "reserved files" khác: `loading.js`, `error.js`, `not-found.js`, `route.js`.
+
+Khác biệt chính so với **Pages Router** (cũ):
+
+| Pages Router (`/pages`) | App Router (`/app`) |
+| :-- | :-- |
+| `getServerSideProps`, `getStaticProps` | `fetch` trong Server Component |
+| `_app.js`, `_document.js` | `layout.js` |
+| Mọi component đều là client | Mặc định Server Component |
+| `next/router` | `next/navigation` |
+
+## 5. Dynamic Routes là gì? Làm sao truyền params vào trang?
+
+**Gợi ý trả lời:**
+
+Đặt tên thư mục trong dấu ngoặc vuông để tạo **dynamic segment**:
+
+```text
+/app/blog/[slug]/page.js   → /blog/hello-world
+/app/shop/[...all]/page.js → catch-all: /shop/a/b/c
+/app/shop/[[...all]]/page.js → optional catch-all
+```
+
+Trong component, `params` được truyền vào như một prop:
+
+```jsx
+export default async function BlogDetail({ params }) {
+  const { slug } = await params; // Next.js 15+: params là Promise
+  const post = await getPost(slug);
+  return <article>{post.title}</article>;
+}
+```
+
+**Bonus:** đề cập `generateStaticParams()` để pre-render các slug lúc build (SSG cho dynamic routes).
+
+## 6. Khi nào dùng `<Link>`, khi nào dùng `useRouter`?
+
+**Gợi ý trả lời:**
+
+- `**<Link>**`: dùng cho navigation **khai báo** (declarative) — khi user click vào một link. Hỗ trợ **prefetch** tự động và chuyển sang CSR khi đang ở trong app.
+- `**useRouter()**` (từ `next/navigation`): dùng cho navigation **lập trình** (programmatic) — sau khi submit form, sau khi đăng nhập thành công, v.v.
+
+```jsx
+'use client';
+import { useRouter } from 'next/navigation';
+
+const router = useRouter();
+router.push('/dashboard');
+router.replace('/login');
+router.refresh(); // refetch Server Component
+```
+
+**Lưu ý:** `useRouter` chỉ dùng được trong Client Component. Ở Server Component, dùng `redirect()` từ `next/navigation`.
+
+## 7. Data fetching trong App Router hoạt động ra sao?
+
+**Gợi ý trả lời:**
+
+Trong App Router, bạn fetch data trực tiếp trong **Server Component** bằng `async/await`:
+
+```jsx
+export default async function PostsPage() {
+  const res = await fetch('https://api.example.com/posts', {
+    next: { revalidate: 60 }, // ISR: cache 60 giây
+  });
+  const posts = await res.json();
+  return <PostList posts={posts} />;
+}
+```
+
+Có 3 chế độ chính, điều khiển qua option của `fetch`:
+
+- `cache: 'force-cache'` (mặc định) → tương đương **SSG**
+- `cache: 'no-store'` → tương đương **SSR**
+- `next: { revalidate: N }` → tương đương **ISR**
+
+Kết hợp với `loading.js` để hiển thị skeleton trong khi fetch, và `error.js` để xử lý lỗi.
+
+## 8. API Routes / Route Handlers dùng để làm gì?
+
+**Gợi ý trả lời:**
+
+Next.js cho phép viết **backend ngay trong project** thông qua `route.js` (App Router) hoặc `/pages/api/*` (Pages Router).
+
+```jsx
+// app/api/posts/route.js
+export async function GET() {
+  const posts = await db.post.findMany();
+  return Response.json(posts);
+}
+
+export async function POST(request) {
+  const body = await request.json();
+  const post = await db.post.create({ data: body });
+  return Response.json(post, { status: 201 });
+}
+```
+
+**Use case:**
+
+- Webhook handler
+- Proxy che giấu API key
+- BFF (Backend for Frontend) đơn giản
+- Xử lý form submit, upload file
+
+**Lưu ý:** với mutation đơn giản, **Server Actions** (Next.js 14\+) thường gọn hơn Route Handlers.
+
+## 9. Tối ưu performance trong Next.js — bạn làm những gì?
+
+Câu này test **kinh nghiệm thực chiến**. Liệt kê được nhiều ý là điểm cộng lớn:
+
+- **`<Image>` từ `next/image`** — lazy loading, sinh `srcset`, dùng AVIF/WebP tự động.
+- **`<Link>` với prefetch** — tải sẵn route khi link xuất hiện trong viewport.
+- **`next/font`** — tự host font, tránh layout shift.
+- **Server Components** — giảm JS bundle gửi xuống client.
+- **Streaming** với `loading.js` và `<Suspense>` — hiển thị UI từng phần thay vì chờ toàn bộ data.
+- **Dynamic import** (`next/dynamic`) — code-splitting cho component nặng (chart, editor).
+- **Tránh `'use client'` ở root** — chỉ client hoá những gì thực sự cần.
+- **Caching đúng cách** với `fetch` options và `revalidateTag` / `revalidatePath`.
+
+## 10. Bạn deploy Next.js ở đâu? Vì sao?
+
+Câu hỏi mang tính **trải nghiệm**, không có đáp án đúng/sai.
+
+**Gợi ý trả lời:**
+
+- **Vercel**: đơn giản nhất, hỗ trợ đầy đủ mọi tính năng Next.js (ISR, Image Optimization, Edge Functions). Nhược: giá cao khi scale.
+- **Self-host (Docker \+ Node.js)**: linh hoạt, kiểm soát chi phí, nhưng phải tự lo Image Optimization, caching, CDN.
+- **Cloudflare Pages / Netlify / AWS Amplify**: tốt cho dự án nhỏ, nhưng một vài tính năng (ISR, middleware) có thể giới hạn.
+
+Nếu có kinh nghiệm thực tế, hãy kể câu chuyện cụ thể: _"Mình từng deploy một blog SSG trên Vercel free tier, sau đó migrate sang VPS dùng Docker để giảm chi phí khi traffic tăng..."_ — luôn ăn điểm.
+
+## Một vài golden rules khi trả lời phỏng vấn Next.js
+
+- **Đừng trả lời chung chung.** "Next.js có SSR" là chưa đủ — hãy nói **khi nào** dùng SSR và **vì sao**.
+- **Luôn so sánh với Pages Router.** Người phỏng vấn thường muốn biết bạn có hiểu sự thay đổi từ Next.js 12 → 13\+ không.
+- **Nhắc đến caching.** App Router có hệ thống cache 4 tầng (Request Memoization, Data Cache, Full Route Cache, Router Cache) — nắm sơ là điểm cộng lớn.
+- **Đừng "phun" buzzword.** Nếu nói "React Server Components" thì phải giải thích được nó là gì, khác Client Component ra sao.
+- **Sẵn sàng cho câu hỏi sâu hơn.** Sau câu "SSR là gì?" thường sẽ là "Streaming SSR khác gì SSR truyền thống?".
+
+## Tổng kết
+
+10 câu hỏi trên gần như bao trùm các chủ đề bạn sẽ gặp trong phỏng vấn Next.js cho vị trí Junior đến Mid-level:
+
+1. Next.js vs React
+2. CSR / SSR / SSG / ISR
+3. Server vs Client Components
+4. File-based routing & App vs Pages Router
+5. Dynamic Routes
+6. `<Link>` vs `useRouter`
+7. Data fetching trong App Router
+8. API Routes / Route Handlers
+9. Tối ưu performance
+10. Deployment
+
+Nếu muốn đi xa hơn, hãy tìm hiểu thêm các chủ đề nâng cao thường xuất hiện ở vòng senior:
+
+- **Server Actions** và `useFormState`, `useFormStatus`
+- **Middleware** và **Edge Runtime**
+- **Caching strategies**: `revalidateTag`, `revalidatePath`, `unstable_cache`
+- **Parallel Routes** và **Intercepting Routes**
+- **Internationalization (i18n)** trong App Router
+
+Chúc bạn pass phỏng vấn dễ dàng!

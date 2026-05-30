@@ -28,7 +28,8 @@
             "pages": [
               "nextjs/index",
               "hoc-next-js-bay-gio-co-muon-khong-140",
-              "9-ieu-co-ban-au-tien-khi-en-voi-next-js-126"
+              "9-ieu-co-ban-au-tien-khi-en-voi-next-js-126",
+              "next-js/10-cau-hoi-phong-van-next-js-thuong-gap"
             ]
           },
           {
@@ -38,7 +39,8 @@
               "tu-xay-dung-image-picker-co-preview-trong-react-129"
             ]
           }
-        ]
+        ],
+        "icon": "antenna"
       },
       {
         "tab": "Onboarding",
