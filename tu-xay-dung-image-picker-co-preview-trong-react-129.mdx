@@ -1,0 +1,314 @@
+---
+title: "Tự xây dựng Image Picker có preview trong React"
+description: "Bài này dùng Next.js với Typescript làm ví dụ, nhưng toàn bộ logic có thể dùng trong bất kỳ React app nào."
+sidebarTitle: "Tự xây dựng Image Picker"
+keywords: ["React", "Next.js"]
+mode: "default"
+---
+
+Hầu hết các form upload ảnh bạn thấy đều trông như thế này: một ô `<input type="file">` xấu xí, không có preview, user không biết mình vừa chọn ảnh gì.
+
+Bài này sẽ xây từng bước một custom `ImagePicker` component có giao diện riêng và preview ảnh trước khi submit — chỉ với `useRef`, `useState`, và `useEffect`. Không cần thư viện ngoài.
+
+## Bước 1 — Bắt đầu với input cơ bản
+
+Tạo component `ImagePicker` nhận vào `title` (label hiển thị) và `name` (dùng cho `id` và `name` của input):
+
+```tsx
+// components/image-picker.tsx
+export default function ImagePicker({
+  title,
+  name,
+}: {
+  title: string;
+  name: string;
+}) {
+  return (
+    <div>
+      <label htmlFor={name}>
+        {title}
+      </label>
+      <input
+        id={name}
+        name={name}
+        type="file"
+        accept="image/*"
+      />
+    </div>
+  );
+}
+```
+
+Dùng trong form:
+
+```tsx
+<ImagePicker title="Chọn ảnh" name="thumbnail" />
+```
+
+Đây là điểm xuất phát. Bây giờ bắt đầu nâng cấp dần.
+
+## Bước 2 — Ẩn input, thêm button tùy chỉnh
+
+File input mặc định của trình duyệt rất khó style. Cách phổ biến là **ẩn nó đi**, rồi dùng một button tùy chỉnh để trigger click vào input ẩn đó thông qua `useRef`.
+
+Vì dùng `useRef` và các DOM event, component này phải là **Client Component**:
+
+```tsx
+'use client';
+
+import { useRef } from "react";
+
+export default function ImagePicker(
+  { title, name }: 
+  { title: string; name: string }
+) {
+
+  const imageInputRef = useRef<HTMLInputElement>(null);
+
+  const handlePickClick = () => {
+    imageInputRef.current?.click();
+  };
+
+  return (
+    <div>
+      <label>{title}</label>
+
+      {/* Input ẩn — vẫn hoạt động bình thường khi submit form */}
+      <input
+        id={name}
+        name={name}
+        ref={imageInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+      />
+
+      {/* Button tùy chỉnh thay thế input */}
+      <button
+        type="button"
+        onClick={handlePickClick}
+      >
+        Chọn ảnh
+      </button>
+    </div>
+  );
+}
+```
+
+`useRef` ở đây không để lưu state — nó lưu **tham chiếu trực tiếp đến DOM node** của input ẩn. Khi button được click, ta gọi `.click()` trên input đó, trình duyệt sẽ mở hộp thoại chọn file như bình thường.
+
+> Dùng `type="button"` cho button để tránh nó vô tình submit form khi click.
+
+## Bước 3 — Preview ảnh đã chọn
+
+Khi người dùng chọn file, sự kiện `onChange` của input được kích hoạt. Từ đó lấy file và tạo URL tạm thời để hiển thị preview bằng `URL.createObjectURL()`:
+
+```tsx
+// sử dụng useState để lưu previewUrl
+const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  // kiểm tra file input
+  const files = event.target.files;
+  if (!files || files.length === 0) return;
+
+  // chỉ xử lý file đầu tiên
+  const file = files[0];
+  setPreviewUrl(URL.createObjectURL(file));
+};
+```
+
+`URL.createObjectURL(file)` tạo ra một URL dạng `blob:http://...` trỏ thẳng đến file trong bộ nhớ — không cần upload lên server, hiển thị ngay lập tức.
+
+Thêm preview vào JSX:
+
+```tsx
+import Image from "next/image";
+
+{previewUrl && (
+  <div>
+    <Image src={previewUrl} alt="Preview" fill className="object-contain" />
+  </div>
+)}
+```
+
+Và bind handler vào input:
+
+```tsx
+<input ... onChange={handleImageChange} />
+```
+
+## Bước 4 — Dọn dẹp bộ nhớ với `useEffect`
+
+`URL.createObjectURL()` cấp phát bộ nhớ cho mỗi URL tạo ra. Nếu không giải phóng, những URL cũ bị ghi đè (khi chọn ảnh mới) hoặc component bị unmount sẽ vẫn chiếm bộ nhớ — gọi là **memory leak**.
+
+Dùng `useEffect` để cleanup:
+
+```tsx
+useEffect(() => {
+  return () => {
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+    }
+  };
+}, [previewUrl]);
+```
+
+Hàm trả về trong `useEffect` là **cleanup function** — React tự động gọi nó trước mỗi lần effect chạy lại (tức là mỗi khi `previewUrl` thay đổi), và khi component unmount. Như vậy URL cũ luôn được giải phóng đúng lúc.
+
+### Ghi chú dành cho những người mới về `useEffect`
+
+`return` **một function trong** `useEffect` **là cú pháp đặc biệt của hook này** — không phải return giá trị thông thường. Hàm được truyền vào `return` bên trong `useEffect` sẽ **chỉ được gọi vào đúng 2 thời điểm**:
+
+1. Trước khi effect chạy lại (tức là `previewUrl` vừa thay đổi, chuẩn bị chạy effect mới)
+2. Khi component unmount
+
+```tsx
+useEffect(() => {
+  // Effect chạy sau mỗi lần previewUrl thay đổi
+
+  return () => {
+    // Cleanup chạy TRƯỚC lần effect tiếp theo, hoặc khi unmount
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+    }
+  };
+}, [previewUrl]);
+```
+
+Trình tự thực tế khi người dùng chọn ảnh lần 2:
+
+```text
+[chọn ảnh lần 1] → effect chạy (previewUrl = "blob://...aaa")
+[chọn ảnh lần 2] → cleanup chạy (revoke "blob://...aaa") → effect chạy (previewUrl = "blob://...bbb")
+[unmount]        → cleanup chạy (revoke "blob://...bbb")
+```
+
+URL cũ luôn được dọn trước khi URL mới được tạo — đúng thứ tự, không leak.
+
+Nếu muốn viết tường minh hơn thay vì dùng arrow function, cách đúng là:
+
+```tsx
+useEffect(() => {
+  function cleanup() {
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+    }
+  }
+
+  return cleanup; // return tham chiếu đến function, không gọi nó
+}, [previewUrl]);
+```
+
+`return cleanup` khác với `return cleanup()` — cái trước trả về function để React gọi sau, cái sau gọi ngay và trả về `undefined`.
+
+## Bước 5 — Nút xóa ảnh đã chọn
+
+```tsx
+const handleReset = () => {
+  setPreviewUrl(null);
+  if (imageInputRef.current) {
+    imageInputRef.current.value = ""; // reset giá trị input file
+  }
+};
+
+// Hiển thị nút chỉ khi đã có ảnh
+{previewUrl && (
+  <button type="button" onClick={handleReset}
+    className="border border-gray-300 rounded px-4 py-2 w-fit">
+    Xóa ảnh
+  </button>
+)}
+```
+
+Cần reset cả `imageInputRef.current.value` — nếu không, input vẫn giữ file cũ trong nội bộ dù preview đã bị xóa, dẫn đến submit sẽ vẫn gửi file đó.
+
+## Full component
+
+```tsx
+'use client';
+
+import { useRef, useState, useEffect } from "react";
+import Image from "next/image";
+
+export default function ImagePicker({
+  title,
+  name,
+}: {
+  title: string;
+  name: string;
+}) {
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  const handlePickClick = () => {
+    imageInputRef.current?.click();
+  };
+
+  const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+    setPreviewUrl(URL.createObjectURL(files[0]));
+  };
+
+  const handleReset = () => {
+    setPreviewUrl(null);
+    if (imageInputRef.current) imageInputRef.current.value = "";
+  };
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
+
+  return (
+    <div className="flex flex-col gap-2">
+      <label className="text-sm font-medium">{title}</label>
+
+      <input
+        id={name}
+        name={name}
+        ref={imageInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleImageChange}
+        className="hidden"
+      />
+
+      {previewUrl && (
+        <div className="relative h-[200px] w-[200px] overflow-hidden rounded border border-gray-300">
+          <Image src={previewUrl} alt="Preview" fill className="object-contain" />
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        <button type="button" onClick={handlePickClick}
+          className="border border-gray-300 rounded px-4 py-2">
+          Chọn ảnh
+        </button>
+        {previewUrl && (
+          <button type="button" onClick={handleReset}
+            className="border border-gray-300 rounded px-4 py-2">
+            Xóa ảnh
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+```
+
+## Tóm tắt
+
+Bài này là ví dụ thực tế cho thấy ba hook phối hợp với nhau:
+
+- `useRef` — tham chiếu đến DOM node để trigger click programmatically
+- `useState` — lưu URL preview, khi thay đổi sẽ re-render hiển thị ảnh mới
+- `useEffect` — cleanup `blob URL` để tránh memory leak
+
+Đây cũng là một trong những trường hợp điển hình **phải dùng Client Component** trong Next.js — vì cần tương tác với DOM và Browser API (`URL.createObjectURL`).
+
+Vậy là xong — bạn đã có một image picker xịn, có preview, tự tay xây từ đầu. Biết làm từ gốc rễ như vậy, sau này dù dùng component có sẵn từ thư viện nào đó, bạn cũng hiểu bên dưới nó đang làm gì.
+
+Thử thách tiếp theo: nâng cấp component này để **preview nhiều ảnh cùng lúc** — lúc đó `previewUrl` sẽ là một mảng, và cleanup cũng cần xử lý tất cả các URL trong mảng đó.
