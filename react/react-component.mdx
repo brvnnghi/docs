@@ -1,0 +1,340 @@
+---
+title: "Hiểu React Component cơ bản với Rating App"
+sidebarTitle: "Hiểu React Component"
+description: "Trong React, mọi thứ đều là component. Lưu ý nhất phần Event Handler."
+---
+
+**Component là đơn vị xây dựng UI cơ bản nhất, giúp bạn chia nhỏ giao diện thành các mảnh độc lập, tái sử dụng được, và dễ bảo trì.**
+
+Từ một nút bấm nhỏ, một thanh điều hướng, cho đến cả một trang web hoàn chỉnh, tất cả đều được xây dựng từ các component lồng vào nhau.
+
+## Component là gì?
+
+Component trong React đơn giản là một **hàm JavaScript trả về JSX** — một đoạn mô tả giao diện.
+
+```jsx
+const Rating = () => {
+  return (
+    <div>
+      <h2>Rate Your Experience</h2>
+    </div>
+  );
+};
+```
+
+Sau đó bạn có thể “nhúng” nó vào bất kỳ component nào khác như một thẻ HTML:
+
+```jsx
+function App() {
+  return (
+    <div>
+      <Rating />
+    </div>
+  );
+}
+```
+
+Một vài quy tắc cần nhớ ngay từ đầu:
+
+- **Tên component phải viết hoa chữ cái đầu** — `Rating`, không phải `rating`. React phân biệt component tự định nghĩa với thẻ HTML gốc chính bằng cách này.
+- **Mỗi component nên có một file riêng** — đặt trong thư mục `components/`, tên file trùng với tên component (ví dụ: `Rating.jsx`).
+
+```jsx components/Rating.jsx
+const Rating = () => {
+  return (
+    <div>
+      <h2>Rate Your Experience</h2>
+    </div>
+  );
+};
+
+export default Rating;
+```
+
+```jsx App.jsx
+import Rating from './components/Rating';
+```
+
+## Render danh sách với `.map()`
+
+Khi cần render nhiều phần tử lặp lại — ví dụ 5 ngôi sao — bạn dùng `.map()` để biến một mảng thành danh sách JSX.
+
+```jsx
+const Rating = () => {
+  const stars = [1,2,3,4,5]
+
+  return (
+    <div className="rating-container">
+      <h2>Rate Your Experience</h2>
+      <div className="stars">
+        {stars.map((star) => (
+          <span **key={star}** className="star">
+            {'\u2605'}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+};
+```
+
+**Lưu ý:**
+
+- **Prop** `key` là bắt buộc khi render danh sách. React dùng nó để theo dõi từng phần tử khi UI cập nhật. Nếu thiếu, bạn sẽ thấy warning trên console — và có thể gặp bug khó hiểu khi danh sách thay đổi. Dùng giá trị duy nhất, ổn định — ở đây là `star` (1, 2, 3, 4, 5).
+- Không dùng `index` của `.map()` làm `key` nếu danh sách có thể bị sắp xếp lại hoặc lọc bớt.
+
+Nhân tiện, ngoài lề một về hàm tạo mảng tự động. Nếu bạn muốn tạo 1 array với các số tuần tự:
+
+```jsx
+**const stars = Array.from({ length: 5 }, (_, i) => i + 1);**
+
+// hàm Array.from() tạo array mới từ array-like object hoặc iterable
+Array.from([1, 2, 3]); // [1, 2, 3] - từ array
+Array.from("hello");   // ['h', 'e', 'l', 'l', 'o'] - từ string
+
+// Array.from sẽ tạo array từ object { length: 5 } với 5 phần tử 'undefined'
+Array.from({ length: 5 }); // [undefined, undefined, undefined, undefined, undefined]
+
+// (_, i) => i + 1) 
+// là map function (tham số thứ 2 của Array.from)
+// _ = current value (bỏ qua vì là undefined)
+// i = index (0, 1, 2, 3, 4)
+// Return i + 1 = (1, 2, 3, 4, 5)
+```
+
+## Styling Component
+
+Có nhiều cách style trong React. Với component nhỏ như `Rating`, hai cách phổ biến nhất là:
+
+**Inline style** — dùng khi style đơn giản, không cần tách file:
+
+```jsx
+// Hai dấu {{ }}: ngoài là JSX, trong là CSS object
+<div style={{ textAlign: 'center', padding: '20px' }}>
+```
+
+**External CSS** — cách phổ biến nhất, dễ maintain hơn khi dự án lớn:
+
+```jsx
+import './Rating.css';
+
+<div className="rating-container">
+```
+
+Lưu ý: trong JSX dùng `className` thay cho `class` (vì `class` là từ khóa trong JavaScript).
+
+### Styling với CSS Modules
+
+CSS Modules thực ra khá phổ biến trong các dự án React, đặc biệt khi dùng với Vite hoặc Next.js vì được hỗ trợ sẵn, không cần cài thêm gì. Nó nằm giữa “inline style” (quá đơn giản) và Tailwind/styled-components (cần setup thêm). Nhiều team chọn nó vì tránh được xung đột class name mà vẫn viết CSS thuần.
+
+**CSS Modules** là cách viết CSS riêng cho từng component, trong đó tên class được **tự động đổi thành duy nhất** khi build — nên không bao giờ bị trùng với component khác, dù bạn đặt tên giống nhau.
+
+```css Rating.module.css
+.container {
+  text-align: center;
+  padding: 20px;
+}
+
+.stars {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.star {
+  font-size: 32px;
+  color: #ccc;
+  cursor: pointer;
+}
+
+.star:hover {
+  color: #f5a623;
+}
+```
+
+```jsx Rating.jsx
+import styles from './Rating.module.css';
+
+const Rating = () => {
+  const stars = Array.from({ length: 5 }, (_, i) => i + 1);
+
+  return (
+    <div className={styles.container}>
+      <h2>Rate Your Experience</h2>
+      <div className={styles.stars}>
+        {stars.map((star) => (
+          <span key={star} className={styles.star}>
+            {'\u2605'}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+};
+```
+
+Hai điểm khác so với CSS thông thường:
+
+**Import như một object** — `import styles from './Rating.module.css'` trả về một object, mỗi class name là một key. Dùng `styles.container` thay vì `"container"`.
+
+**Tên file phải có** `**.module.css**` — đây là quy ước để bundler (Vite, webpack) nhận ra và xử lý class scoping tự động. File `Rating.css` bình thường sẽ không có tính năng này.
+
+Khi build xong, class `.star` trong `Rating.module.css` sẽ thành tên kiểu `_star_x7k2p_1` — unique, không đụng hàng với `.star` ở bất kỳ component nào khác.
+
+## Event Handler
+
+Đây là phần quan trọng nhất trong bài, nơi component bắt đầu có **tương tác**.
+
+### Cú pháp cơ bản
+
+React dùng camelCase cho tên event, và nhận vào **một hàm** (không phải chuỗi như HTML thuần):
+
+```jsx
+// HTML thuần
+<button onclick="handleClick()">Click</button>
+
+// JSX
+<button onClick={handleClick}>Click</button>
+```
+
+### Lưu ý quan trọng: có `()` hay không?
+
+Đây là điểm dễ nhầm nhất:
+
+```jsx
+// ✅ Đúng — truyền hàm vào, chỉ gọi khi click
+<button onClick={handleClick}>Click</button>
+
+// ❌ Sai — gọi hàm ngay lúc render, không phải lúc click
+<button onClick={handleClick()}>Click</button>
+```
+
+Nếu cần **truyền tham số**, bọc trong arrow function:
+
+```jsx
+// ✅ Đúng — dùng arrow fn để truyền args
+<button onClick={() => handleClick(star)}>Click</button>
+
+// ❌ Sai — sẽ tự gọi ngay khi render
+<button onClick={handleClick(star)}>Click</button>
+```
+
+**Quy tắc đơn giản để nhớ:** nếu cần truyền tham số → bọc trong `() =>`. Nếu không cần → truyền thẳng tên hàm.
+
+Về bản chất đây là `callback function`.
+
+Hãy nghĩ theo cách này: `onClick` chờ bạn truyền vào **một hàm để gọi sau** — tức là chỉ gọi khi có sự kiện xảy ra, không gọi ngay. Đó là định nghĩa của callback.
+
+```javascript
+onClick={handleClick}
+// handleClick là một hàm → truyền thẳng vào, React sẽ gọi nó sau khi click
+```
+
+Khi cần truyền tham số, bạn không thể viết `onClick={handleClick(star)}` vì `handleClick(star)` **gọi hàm ngay lập tức** và trả về kết quả — thay vì truyền một hàm. Lúc này `onClick` nhận được `undefined` thay vì một callback.
+
+Giải pháp là bọc trong một arrow function rỗng:
+
+```jsx
+onClick={() => handleClick(star)}
+// () => handleClick(star) là một hàm mới, rỗng, chưa chạy gì cả
+// React giữ nó lại, đợi đến khi click mới gọi
+// lúc đó arrow fn chạy → bên trong gọi handleClick(star)
+```
+
+Cơ chế này không phải đặc thù của React — đây là JavaScript thuần.
+
+Hoàn toàn tương đương với `addEventListener` trong Vanilla JS:
+
+```javascript
+// Vanilla JS
+button.addEventListener('click', handleClick);              // không có args
+button.addEventListener('click', () => handleClick(star));  // có args
+```
+
+```jsx
+// React JSX
+<button onClick={handleClick}>             // không có args
+<button onClick={() => handleClick(star)}> // có args
+```
+
+Cùng một pattern, chỉ khác cú pháp. `addEventListener` cũng chờ nhận vào một hàm callback — truyền thẳng tên hàm nếu không có args, bọc trong arrow function nếu cần truyền args vào.
+
+### Ví dụ thực tế với Rating
+
+```jsx
+const Rating = () => {
+  const stars = Array.from({ length: 5 }, (_, i) => i + 1);
+
+  // xử lý khi click
+  const handleClick = (star) => {
+    console.log('Clicked star:', star);
+  };
+
+  // xử lý khi hover
+  const handleHover = (direction) => {
+    console.log('Hovered:', direction);
+  };
+
+  return (
+    <div className="rating-container">
+      <h2>Rate Your Experience</h2>
+      <div className="stars">
+        {stars.map((star) => (
+          <span
+            key={star}
+            className="star"
+            onClick={() => handleClick(star)}           // gọi handleClick
+            onMouseEnter={() => handleHover('enter')}   // gọi handleHover
+            onMouseLeave={() => handleHover('leave')}
+          >
+            {'\u2605'}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+export default Rating;
+```
+
+Ở đây bạn thấy ba event phổ biến:
+
+- `onClick` — xử lý click chuột
+- `onMouseEnter` — chuột di vào phần tử
+- `onMouseLeave` — chuột rời khỏi phần tử
+
+Tất cả đều nhận arrow function vì cần truyền tham số vào hàm xử lý.
+
+### Lưu ý Best Practices
+
+**Đặt tên hàm xử lý event có prefix** `handle` — ví dụ `handleClick`, `handleSubmit`, `handleChange`. Giúp dễ phân biệt với các hàm logic khác.
+
+**Tách hàm handler ra ngoài JSX** — đừng viết logic phức tạp trực tiếp trong `onClick={...}`. Khó đọc và khó debug.
+
+```jsx
+// ❌ Khó đọc
+<span onClick={() => { console.log('click'); setActive(star); doSomethingElse(); }}>
+
+// ✅ Dễ đọc hơn
+const handleClick = (star) => {
+  console.log('click');
+  setActive(star);
+  doSomethingElse();
+};
+
+<span onClick={() => handleClick(star)}>
+```
+
+**Một component nên làm một việc** — nếu component đang xử lý quá nhiều thứ, hãy cân nhắc tách nhỏ ra.
+
+## Tóm tắt
+
+Trong bài này, bạn đã nắm được:
+
+- **Component** là hàm trả về JSX, tên phải viết hoa, mỗi component nên có một file riêng.
+- **Render danh sách** dùng `.map()`, luôn kèm prop `key` với giá trị duy nhất và ổn định.
+- **Styling** có thể dùng inline style hoặc external CSS với `className`.
+- **Event Handler** nhận vào một hàm (không gọi trực tiếp), dùng arrow function khi cần truyền tham số.
+
+Bước tiếp theo tự nhiên từ đây là **State** — cách React lưu và cập nhật dữ liệu bên trong component (ví dụ: lưu lại ngôi sao nào đang được chọn). Sau đó là **Props** — cách truyền dữ liệu từ component cha xuống component con. Hai khái niệm này sẽ làm cho `Rating` của bạn thực sự hoạt động.

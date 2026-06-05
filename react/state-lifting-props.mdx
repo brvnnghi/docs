@@ -1,0 +1,289 @@
+---
+title: "Thay đổi giao diện với State và useState (phần 2)"
+description: 'State Lifting và Props: trả lời câu hỏi "state" đặt ở đâu, truyền lên xuống như thế nào?'
+sidebarTitle: "State Lifting với Props"
+---
+
+Trong bài trước, `rating` và `hover` state đều sống trong `Rating` component — component duy nhất cần dùng chúng. Mọi thứ gọn gàng trong một chỗ.
+
+Nhưng thực tế không đơn giản vậy. Bạn có `NewPost` component chứa form để nhập tiêu đề, và `Post` component hiển thị tiêu đề đó. Hai component riêng biệt — vậy state nên đặt ở đâu?
+
+## Trường hợp đơn giản: state dùng trong cùng component
+
+Khi state chỉ phục vụ một component, đặt thẳng vào component đó là đúng nhất.
+
+Ví dụ — `NewPost` có một nút toggle để ẩn/hiện phần preview trước khi submit. Không component nào khác cần biết form đang mở hay đóng:
+
+```tsx
+const NewPost = (props: NewPostProps) => {
+  const [isExpanded, setIsExpanded] = useState(true); // chỉ NewPost dùng
+
+  return (
+    <div>
+      <button onClick={() => setIsExpanded((prev) => !prev)}>
+        {isExpanded ? 'Ẩn form' : 'Viết bài mới'}
+      </button>
+
+      {isExpanded && (
+        <form onSubmit={props.onSubmit}>
+          <textarea onChange={props.onTitleChange} />
+          <input type="text" onChange={props.onAuthorChange} />
+          <button type="submit">Add Post</button>
+        </form>
+      )}
+    </div>
+  );
+};
+```
+
+`isExpanded` không liên quan đến `PostList` hay `Post` — giữ local trong `NewPost` là đúng.
+
+## Trường hợp phức tạp: state dùng ở nhiều component
+
+Xét cấu trúc này:
+
+```text
+PostList
+├── NewPost   ← người dùng nhập tiêu đề ở đây
+└── Post      ← hiển thị tiêu đề ở đây
+```
+
+`NewPost` là nơi phát sinh dữ liệu. `Post` là nơi cần hiển thị dữ liệu. Hai component này không biết nhau — chúng là anh em (siblings), không phải cha con.
+
+Nếu đặt state trong `NewPost`:
+
+```jsx
+const NewPost = () => {
+  const [title, setTitle] = useState(''); // state nằm trong NewPost
+
+  // Post không thể đọc được title này — nó ở component khác
+};
+```
+
+`Post` không thể đọc state của `NewPost`. Trong React, **dữ liệu chỉ chạy một chiều: từ cha xuống con qua props** — không chạy ngang giữa các anh em.
+
+Giải pháp là **đưa state lên component cha chung** — `PostList`. Đây gọi là **State Lifting** (nâng state lên).
+
+## State Lifting trong thực tế
+
+Mở rộng ví dụ đầy đủ — form có cả `title` lẫn `author`, bấm Submit thì tạo post mới và đẩy vào danh sách.
+
+Trước tiên, định nghĩa một interface dùng chung cho cả 3 component:
+
+```tsx types.ts
+export interface PostData {
+  id: number
+  title: string
+  author: string
+}
+```
+
+`PostList` giữ toàn bộ state và handler, truyền xuống từng component con qua props:
+
+```tsx PostList.tsx
+// ví dụ này dùng JSX DOM trong Hono, React thực tế vẫn áp dụng giống vậy
+import { useState } from 'hono/jsx/dom'
+import { PostData } from './types'
+
+import Post from './Post'
+import NewPost from './NewPost'
+
+export default function PostList() {
+
+  // form state — tạm thời, reset sau khi submit
+  const [enteredTitle, setEnteredTitle]   = useState('')
+  const [enteredAuthor, setEnteredAuthor] = useState('')
+
+  // list state — tích lũy dần theo thời gian
+  const [posts, setPosts] = useState<PostData[]>([
+    { id: 1, title: 'My first post',  author: 'Huu Nghi' },
+    { id: 2, title: 'My second post', author: 'Alex' },
+  ])
+
+  function handleTitleChange(e: any) {
+    setEnteredTitle(e.target.value)
+  }
+
+  function handleAuthorChange(e: any) {
+    setEnteredAuthor(e.target.value)
+  }
+
+  function handleSubmit(e: any) {
+    e.preventDefault() // ngăn form reload trang
+
+    if (!enteredTitle.trim()) return // bỏ qua nếu title rỗng
+
+    const newPost: PostData = {
+      id: Date.now(),
+      title: enteredTitle,
+      author: enteredAuthor || 'Anonymous',
+    }
+
+    setPosts((prev) => [newPost, ...prev]) // thêm vào đầu danh sách
+
+    // reset form sau khi submit
+    setEnteredTitle('')
+    setEnteredAuthor('')
+  }
+
+  return (
+    <div class="space-y-6 mt-6">
+      <NewPost
+        onTitleChange={handleTitleChange}
+        onAuthorChange={handleAuthorChange}
+        onSubmit={handleSubmit}
+      />
+      {posts.map((post) => (
+        <Post key={post.id} id={post.id} title={post.title} author={post.author} />
+      ))}
+    </div>
+  )
+}
+```
+
+`NewPost` nhận 3 props từ cha — hai handler cho từng field và một hàm submit:
+
+```tsx NewPost.tsx
+interface NewPostProps {
+  onTitleChange: (e: any) => void
+  onAuthorChange: (e: any) => void
+  onSubmit: (e: any) => void
+}
+
+const NewPost = (props: NewPostProps) => {
+  return (
+    <form
+      onSubmit={props.onSubmit}
+      class="border-2 border-black bg-white shadow-[4px_4px_0_0] p-4 sm:p-6 my-6"
+    >
+      <label for="title">
+        <span class="text-sm font-semibold">Title</span>
+        <textarea
+          id="title"
+          rows={3}
+          class="mt-0.5 w-full border-2 border-black focus:ring-2 focus:ring-yellow-300"
+          onChange={props.onTitleChange}
+        />
+      </label>
+      <label for="author">
+        <span class="text-sm font-semibold">Author</span>
+        <input
+          type="text"
+          id="author"
+          class="mt-0.5 w-full border-2 border-black focus:ring-2 focus:ring-yellow-300"
+          onChange={props.onAuthorChange}
+        />
+      </label>
+      <button
+        type="submit"
+        class="mt-4 border-2 border-black bg-yellow-300 px-4 py-2 font-semibold shadow-[2px_2px_0_0] hover:bg-yellow-400"
+      >
+        Add Post
+      </button>
+    </form>
+  )
+}
+
+export default NewPost
+```
+
+`Post` chỉ nhận props và hiển thị — không giữ state gì cả:
+
+```tsx Post.tsx
+import { PostData } from './types'
+
+const Post = (props: PostData) => {
+  return (
+    <a href="#" class="block border-2 border-black bg-white p-4 shadow-[4px_4px_0_0] hover:bg-yellow-100 sm:p-6 my-6">
+      <time class="text-xs font-semibold uppercase">
+        {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+      </time>
+      <h3 class="mt-1 text-xl font-semibold">
+        {props.title || 'Untitled Post'}
+      </h3>
+      <p class="mt-2 text-pretty">
+        by {props.author || 'Unknown Author'}
+      </p>
+    </a>
+  )
+}
+
+export default Post
+```
+
+Luồng dữ liệu hoàn chỉnh:
+
+```text
+người dùng nhập title/author vào NewPost
+  → onChange gọi handler của PostList
+    → setEnteredTitle / setEnteredAuthor cập nhật form state
+
+người dùng bấm "Add Post"
+  → onSubmit gọi handleSubmit của PostList
+    → tạo newPost object
+      → setPosts thêm newPost vào đầu danh sách
+        → PostList re-render, posts.map() render danh sách mới
+```
+
+## Quy tắc: đặt state và handler ở đâu?
+
+**State đặt ở component thấp nhất có thể** — nhưng phải đủ cao để tất cả component cần dùng đều có thể nhận qua props.
+
+Hỏi: “Component nào cần đọc hoặc thay đổi dữ liệu này?”
+
+- Chỉ một component → đặt thẳng trong component đó.
+- Nhiều component anh em → đặt trong component cha chung gần nhất.
+- Toàn bộ app → đặt trong Context hoặc global state (Redux, Zustand).
+
+**Handler đặt cùng chỗ với state** — vì handler gọi setter, mà setter phải ở cùng chỗ với state. Rồi truyền handler xuống component con qua props.
+
+```tsx
+// ✅ State và handler đi cùng nhau trong PostList
+const [enteredTitle, setEnteredTitle] = useState('')
+
+function handleTitleChange(e: any) {
+  setEnteredTitle(e.target.value) // setter nằm đây, handler nằm đây
+}
+
+<NewPost onTitleChange={handleTitleChange} /> // truyền handler xuống
+```
+
+## Props là gì?
+
+Đây là lúc cần hiểu rõ **props** — cơ chế để component cha truyền dữ liệu xuống component con.
+
+Props hoạt động giống như tham số của một hàm: cha truyền vào, con nhận và dùng, nhưng **không được sửa**. Component con chỉ đọc props, không thay đổi trực tiếp — muốn thay đổi thì gọi handler mà cha truyền xuống.
+
+```tsx
+// Cha truyền xuống
+<Post id={post.id} title={post.title} author={post.author} />
+
+// Con nhận và dùng — không được gán lại props.title
+const Post = (props: PostData) => {
+  return <h3>{props.title}</h3>;
+};
+```
+
+TypeScript giúp định nghĩa rõ props nào được nhận — và props nào là bắt buộc:
+
+```tsx
+export interface PostData {
+  id: number      // bắt buộc
+  title: string   // bắt buộc
+  author: string  // bắt buộc
+}
+
+// NewPost props — tất cả là function, không có optional
+interface NewPostProps {
+  onTitleChange: (e: any) => void
+  onAuthorChange: (e: any) => void
+  onSubmit: (e: any) => void
+}
+```
+
+## Tóm tắt
+
+- State chỉ dùng trong một component → đặt local trong component đó.
+- State cần chia sẻ giữa nhiều component → **lift lên component cha chung gần nhất**.
+- Handler luôn đặt cùng chỗ với state, rồi truyền xuống con qua props.
+- Dữ liệu chỉ chạy một chiều: từ cha xuống con — không bao giờ ngược lại.

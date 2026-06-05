@@ -1,0 +1,294 @@
+---
+title: "Thay đổi giao diện với State và useState (phần 1)"
+description: "React không tự động render lại component khi một biến thông thường thay đổi. Bạn phải dùng useState để cập nhật trạng thái component."
+sidebarTitle: "State và useState"
+---
+
+Bạn đang xây dựng một form. Người dùng nhập nội dung vào ô input, bạn lắng nghe sự kiện và log ra console — mọi thứ hoạt động tốt.
+
+Bước tiếp theo tưởng chừng đơn giản: lưu giá trị đó vào một biến và hiển thị lên UI.
+
+```jsx
+// ... trong component function
+let enteredBody = '';
+
+const handleChange = (e) => {
+  enteredBody = e.target.value;
+};
+
+// ... trong return JSX
+<p>{enteredBody}</p>
+```
+
+Nhưng chạy thử thì… không có gì cập nhật cả. Biến thay đổi, nhưng UI đứng yên.
+
+Lý do: **React không tự động render lại component khi một biến thông thường thay đổi.** Đây là điểm khác biệt cốt lõi so với cách lập trình JavaScript thông thường, và cũng là lý do `state` ra đời.
+
+## State là gì?
+
+State là **dữ liệu thay đổi theo thời gian bên trong ứng dụng**. Khi state thay đổi, React tự động render lại component để UI phản ánh dữ liệu mới — đây là điều một biến thông thường không làm được.
+
+Có hai loại state trong React:
+
+- **Component state** — dữ liệu chỉ liên quan đến một component cụ thể, không cần chia sẻ ra ngoài. Ví dụ: một modal có state `isOpen` để biết đang mở hay đóng — component khác không cần quan tâm đến điều này.
+- **Global state** (application state) — dữ liệu cần chia sẻ giữa nhiều component. Ví dụ: thông tin user đang đăng nhập `isLoggedIn`. React có sẵn Context API cho việc này, hoặc bạn có thể dùng thư viện như Redux, Zustand.
+
+> **Hook là gì?**\
+> Trước khi đến `useState`, cần hiểu khái niệm **hook**.
+>
+> Hook là những hàm đặc biệt trong React, cho phép bạn “móc vào” các tính năng built-in của React — như state, lifecycle, context — ngay bên trong function component. Hook luôn bắt đầu bằng chữ `use`: `useState`, `useEffect`, `useContext`…
+>
+> Trước khi có hook, những tính năng này chỉ dùng được trong class component. Giờ thì function component làm được tất cả — và đó là chuẩn phổ biến ngày nay.
+
+### useState là gì?
+
+`useState` là hook cơ bản nhất để quản lý state trong một component.
+
+```jsx
+const [value, setValue] = useState(initialValue);
+
+// stateData[0] mảng này trả lại currentValue
+// stateData[1] mảng này trả lại hàm cập nhật currentValue
+// dùng array destructuring để lấy ra
+```
+
+`useState` trả về một mảng gồm hai phần tử — bạn dùng array destructuring để lấy ra:
+
+- `value` — giá trị state hiện tại, có thể là string, number, boolean, object…
+- `setValue` — hàm dùng để cập nhật state. Khi gọi hàm này, React sẽ re-render component.
+- `initialValue` — giá trị khởi tạo, chỉ dùng lần đầu render.
+
+Đặt tên theo dữ liệu đang quản lý cho dễ đọc:
+
+```jsx
+const [count, setCount] = useState(0);
+const [user, setUser] = useState(null);
+const [isOpen, setIsOpen] = useState(false);
+```
+
+Ví dụ cơ bản nhất — counter:
+
+```jsx
+<button onClick={() => setCount(count + 1)}>Cộng 1</button>
+<p>Số hiện tại: {count}</p>
+```
+
+Mỗi lần click: `setCount` được gọi → React re-render component → giá trị `count` mới hiển thị trên UI.
+
+> ⚠️ Không được thay đổi state trực tiếp như `count++`. Luôn dùng setter function (`setCount`) để React biết có sự thay đổi và trigger re-render.
+
+## Ứng dụng vào Rating component
+
+Quay lại `Rating` — thay vì dùng `console.log`, giờ dùng state để lưu ngôi sao đang được chọn và ngôi sao đang được hover:
+
+```jsx
+import { useState } from 'react';
+
+const Rating = () => {
+  const stars = Array.from({ length: 5 }, (_, i) => i + 1);
+
+  const [rating, setRating] = useState(0); // ngôi sao đã chọn (0 = chưa chọn)
+  const [hover, setHover] = useState(0);   // ngôi sao đang hover
+
+  return (
+    <div className="rating-container">
+      <h2>Rate Your Experience</h2>
+      <div className="stars">
+        {stars.map((star) => (
+          <span
+            key={star}
+            className="star"
+            onClick={() => setRating(star)}      // lưu rating khi click
+            onMouseEnter={() => setHover(star)}  // highlight khi hover vào
+            onMouseLeave={() => setHover(0)}     // reset khi hover ra
+          >
+            {'\u2605'}
+          </span>
+        ))}
+      </div>
+      <p>Rating: {rating} / 5</p>
+    </div>
+  );
+};
+```
+
+Hai state phục vụ hai mục đích khác nhau: `rating` là giá trị thực sự được chọn (có thể dùng để gửi lên server), còn `hover` chỉ dùng để thay đổi giao diện tạm thời khi chuột di qua.
+
+## Nâng cao: Nên truyền function có tham số `prev` vào setter
+
+Trong ví dụ counter ở trên, giá trị mới phụ thuộc vào giá trị cũ: `setCount(count + 1)`.
+
+Cách này thường ổn, nhưng có một edge case: React đôi khi **gộp nhiều state update lại** (batching) trước khi render. Nếu bạn gọi `setCount(count + 1)` nhiều lần liên tiếp, tất cả đều đọc cùng một giá trị `count` cũ — kết quả không như mong đợi.
+
+Giải pháp: truyền một function vào setter thay vì truyền giá trị trực tiếp.
+
+```jsx
+const increment = () => {
+  // ❌ Không nên — đọc count từ closure, có thể stale
+  setCount(count + 1);
+
+  // ✅ Nên dùng — prevCount luôn là giá trị mới nhất
+  setCount((prevCount) => prevCount + 1);
+};
+```
+
+Tình huống dễ thấy nhất là khi bạn gọi setter **nhiều lần trong cùng một hàm**:
+
+```jsx
+const handleTripleClick = () => {
+  setCount(count + 1); // count = 0, React ghi nhận: "set thành 1"
+  setCount(count + 1); // count = 0, React ghi nhận: "set thành 1"
+  setCount(count + 1); // count = 0, React ghi nhận: "set thành 1"
+  // kết quả: count = 1, không phải 3
+};
+```
+
+Ba lần gọi nhưng cả ba đều đọc `count` từ closure — và `count` lúc đó vẫn là `0` vì component chưa re-render. React thấy ba lần “set thành 1” nên chỉ làm một lần.
+
+Dùng `prevCount` thì khác:
+
+```jsx
+const handleTripleClick = () => {
+  setCount((prev) => prev + 1); // prev = 0 → 1
+  setCount((prev) => prev + 1); // prev = 1 → 2
+  setCount((prev) => prev + 1); // prev = 2 → 3
+  // kết quả: count = 3 ✅
+};
+```
+
+React xếp ba function này vào hàng đợi và chạy tuần tự — mỗi lần `prev` nhận đúng kết quả của lần trước.
+
+Trong thực tế, bạn ít khi gọi setter ba lần liên tiếp như vậy.
+
+Nhưng pattern này quan trọng hơn khi dùng `useEffect` hoặc async — những chỗ mà closure “đóng băng” giá trị state tại thời điểm hàm được tạo, không phải thời điểm hàm chạy.
+
+Lúc đó `prev` là cách duy nhất để chắc chắn bạn đang đọc đúng giá trị mới nhất.
+
+Ví dụ: bạn có một timer tự động tăng `count` mỗi giây.
+
+```jsx
+const [count, setCount] = useState(0);
+
+useEffect(() => {
+  const interval = setInterval(() => {
+    setCount(count + 1); // ❌
+  }, 1000);
+
+  return () => clearInterval(interval);
+}, []); // dependency array rỗng — chỉ chạy 1 lần khi mount
+```
+
+Kết quả: `count` tăng lên `1` rồi… đứng yên mãi ở đó.
+
+Lý do: `useEffect` với `[]` chỉ chạy một lần duy nhất khi component mount. Lúc đó nó tạo ra `setInterval` và **đóng băng** giá trị `count = 0` vào trong callback. Mỗi giây `setInterval` chạy, nó vẫn đọc `count = 0` từ closure cũ đó — nên cứ mãi `setCount(0 + 1)`.
+
+Dùng `prev` thì callback không cần đọc `count` từ bên ngoài nữa:
+
+```jsx
+useEffect(() => {
+  const interval = setInterval(() => {
+    setCount((prev) => prev + 1); // ✅ prev luôn là giá trị mới nhất
+  }, 1000);
+
+  return () => clearInterval(interval);
+}, []);
+```
+
+Giờ mỗi giây React tự lấy giá trị hiện tại của `count` và cộng thêm 1 — hoàn toàn độc lập với closure, nên timer chạy đúng.
+
+Đây là lý do pattern `prev =>` quan trọng hơn nhiều khi làm việc với async hoặc side effects — những chỗ mà hàm được tạo ra từ lâu nhưng chạy sau đó một khoảng thời gian.
+
+## **Nâng cao: Lưu ý khi khởi tạo state bằng function**
+
+Thay vì truyền thẳng giá trị vào `useState`, bạn có thể truyền một function:
+
+```jsx
+const [count, setCount] = useState(() => {
+  console.log('Initializing count...');
+  return 4;
+});
+```
+
+Ví dụ thực tế — đọc dữ liệu từ `localStorage`:
+
+```jsx
+// ❌ Không nên — JSON.parse chạy lại mỗi lần render
+const [theme, setTheme] = useState(
+  JSON.parse(localStorage.getItem('theme')) || 'light'
+);
+
+// ✅ Nên dùng — chỉ đọc localStorage một lần duy nhất
+const [theme, setTheme] = useState(() => {
+  return JSON.parse(localStorage.getItem('theme')) || 'light';
+});
+```
+
+`localStorage.getItem` hay `JSON.parse` không nặng lắm, nhưng nếu là tính toán phức tạp hơn — parse một file lớn, lọc một mảng hàng nghìn phần tử — thì việc chạy lại mỗi render sẽ ảnh hưởng đến hiệu suất rõ rệt.
+
+Dùng function là cách đúng trong những trường hợp đó.
+
+**Tại sao phải là một function mà không phải là một giá trị?**
+
+Vì cách JavaScript xử lý tham số trước khi truyền vào hàm.
+
+Khi bạn viết:
+
+```jsx
+useState(JSON.parse(localStorage.getItem('theme')) || 'light')
+```
+
+JavaScript **tính toán biểu thức trong ngoặc trước**, rồi mới truyền kết quả vào `useState`. Điều này xảy ra mỗi lần render — `useState` nhận được kết quả rồi bỏ qua vì không phải lần đầu, nhưng việc tính toán đã xảy ra rồi, không lấy lại được.
+
+Khi bạn viết:
+
+```jsx
+useState(() => JSON.parse(localStorage.getItem('theme')) || 'light')
+```
+
+Bạn đang truyền vào **một function chưa chạy**. React nhận function đó, tự quyết định khi nào gọi — và nó chỉ gọi đúng một lần lúc mount. Các lần render sau React biết state đã có rồi, không gọi nữa.
+
+Đây không phải đặc thù của React — đây là cách JavaScript hoạt động. Bạn có thể kiểm chứng ngay:
+
+```javascript
+function nhanThamSo(value) {
+  console.log('hàm đã nhận được:', value);
+}
+
+function tinhToan() {
+  console.log('đang tính toán...');
+  return 42;
+}
+
+nhanThamSo(tinhToan());
+// log: "đang tính toán..."  ← chạy trước
+// log: "hàm đã nhận được: 42"
+
+nhanThamSo(tinhToan);
+// log: "hàm đã nhận được: [Function: tinhToan]"  ← chưa chạy gì cả
+```
+
+Truyền giá trị = tính xong rồi đưa kết quả.
+
+Truyền function = đưa cái máy tính, để người nhận tự quyết định khi nào bấm.
+
+## Xem state trong React DevTools
+
+Khi mới học, khó biết state có thực sự thay đổi hay không. React DevTools là công cụ không thể thiếu:
+
+<Frame>
+  ![Devtools 1](/images/devtools-1.png)
+</Frame>
+
+1. Cài đặt React [DevTools](https://chromewebstore.google.com/detail/react-developer-tools/fmkadmapgofadopljbjfkapdkoienihi?hl=en&pli=1) vào Chrome
+2. Mở DevTools (F12) → tab **Components**
+3. Click vào component `Rating`
+4. Xem mục **Hooks** — sẽ thấy giá trị `rating` và `hover` cập nhật real-time khi bạn tương tác
+
+## Tóm tắt
+
+- Biến thông thường thay đổi không làm React re-render — cần dùng `state`.
+- `useState(initialValue)` trả về `[value, setValue]` — value để đọc, setValue để cập nhật.
+- Luôn dùng setter function, không sửa state trực tiếp.
+- Khi giá trị mới phụ thuộc vào giá trị cũ, dùng `setValue(prev => prev + 1)` thay vì `setValue(value + 1)`.
+
+Bước tiếp theo: **Props** — cách truyền state từ component cha xuống component con.

@@ -1,0 +1,311 @@
+---
+title: "Thay đổi giao diện với State và useState (phần 3)"
+description: "Thực hành tạo, mở, đóng Modal sử dụng useState, State Lifting, Conditional Rendering, Children Props."
+sidebarTitle: "State và Conditional Rendering"
+---
+
+1. vị trí đặt `modalIsVisible` và state lifting
+2. sử dụng childern để chèn nội component khác vào modal
+3. condition rendering để mở và đóng modal
+4. conditional rendering để thay đổi trạng thái nút
+
+Bài này chốt lại toàn bộ những gì đã học về `useState` bằng một ví dụ thực tế: **Modal** — component xuất hiện ở khắp mọi nơi trong production, và là bài tập tổng hợp hoàn hảo cho state lifting, conditional rendering, và children props.
+
+Mục tiêu cuối bài: click “New Post” → modal mở ra chứa form → submit hoặc click backdrop/nút X → modal đóng lại.
+
+## State đặt ở đâu?
+
+Câu hỏi đầu tiên cần trả lời trước khi viết code: `isModalOpen` **đặt trong component nào?**
+
+**Muốn biết, phải hiểu rõ cấu trúc của các component.**
+
+### Cấu trúc component
+
+```text
+PostList
+├── Modal (backdrop + khung trắng)
+│   └── NewPost (form bên trong modal)
+└── Post (lặp lại cho từng bài)
+```
+
+- Nút “New Post” nằm trong `PostList`.
+- Nút X và backdrop nằm trong `Modal`.
+- `NewPost` chỉ là form thuần — không biết gì về modal.
+
+Áp dụng quy tắc từ bài trước: state đặt ở component thấp nhất có thể, nhưng phải đủ cao để tất cả component cần dùng đều có thể nhận qua props.
+
+Những component nào cần biết modal đang mở hay đóng?
+
+- `PostList` — cần biết để render nút “New Post” hay “Đang mở…”
+- `Modal` — cần biết để render hay không render
+- `NewPost` — không cần biết, chỉ lo render form
+
+`PostList` là cha chung của cả `Modal` lẫn nút “New Post” — nên `isModalOpen` đặt ở đây.
+
+## Children Props và render cái gì bên trong Modal
+
+Trước khi viết `Modal`, cần hiểu **children props** — một loại props đặc biệt trong React.
+
+Thông thường bạn truyền data qua props có tên cụ thể: `title`, `author`, `onSubmit`… Nhưng `Modal` không biết trước bên trong nó sẽ chứa gì — lúc thì `NewPost`, lúc thì form đăng nhập, lúc thì hộp thoại xác nhận xóa.
+
+`children` giải quyết điều đó: bất cứ thứ gì bạn đặt **giữa thẻ mở và thẻ đóng** của component sẽ được truyền vào dưới dạng `props.children`.
+
+```tsx
+// Dùng Modal như một "wrapper"
+<Modal onClose={handleClose}>
+  <NewPost onSubmit={handleSubmit} />
+</Modal>
+
+// Bên trong Modal, props.children là <NewPost />
+const Modal = (props: ModalProps) => {
+  return (
+    <div class="backdrop">
+      <div class="modal-box">
+        {props.children}  {/* render bất cứ thứ gì được truyền vào */}
+      </div>
+    </div>
+  );
+};
+```
+
+`Modal` không cần biết nội dung bên trong là gì — nó chỉ lo phần backdrop, khung trắng, và nút đóng. Nội dung là việc của component cha quyết định.
+
+## Viết Modal component
+
+```tsx Modal.tsx
+interface ModalProps {
+  onClose: () => void
+  children: any
+}
+
+const Modal = (props: ModalProps) => {
+  return (
+    <>
+      {/* Backdrop — click vào sẽ đóng modal */}
+      <div
+        class="fixed inset-0 bg-black/50 z-40"
+        onClick={props.onClose}
+      />
+
+      {/* Modal box — nằm trên backdrop */}
+      <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div class="w-full max-w-lg bg-white border-2 border-black shadow-[4px_4px_0_0] p-6">
+
+          {/* Nút đóng */}
+          <button
+            onClick={props.onClose}
+            class="float-right text-sm font-semibold hover:underline"
+          >
+            ✕ Đóng
+          </button>
+
+          {/* Nội dung do cha truyền vào */}
+          {props.children}
+        </div>
+      </div>
+    </>
+  );
+};
+
+export default Modal
+```
+
+`onClose` được dùng ở hai chỗ: backdrop và nút X — cả hai đều chỉ gọi một hàm duy nhất từ cha truyền xuống, không tự quản lý state.
+
+## Conditional Rendering cho Modal đóng mở
+
+`isModalOpen` là boolean — dùng nó để quyết định render `Modal` hay không. Có 3 cách phổ biến:
+
+### **Cách 1 — Tách ra biến trước khi return**
+
+Dễ đọc nhất khi nội dung phức tạp:
+
+```tsx
+let modalContent = null; // mặc định không render gì
+
+if (isModalOpen) {
+  modalContent = (
+    <Modal onClose={handleCloseModal}>
+      <NewPost
+        onTitleChange={handleTitleChange}
+        onAuthorChange={handleAuthorChange}
+        onSubmit={handleSubmit}
+      />
+    </Modal>
+  );
+}
+
+return (
+  <div>
+    {modalContent}
+    {/* ... phần còn lại */}
+  </div>
+);
+```
+
+### **Cách 2 — Short-circuit** `&&`
+
+Gọn, phù hợp khi chỉ có một nhánh (true thì render, false thì không):
+
+```tsx
+{isModalOpen && (
+  <Modal onClose={handleCloseModal}>
+    <NewPost ... />
+  </Modal>
+)}
+```
+
+### **Cách 3 — Ternary operator**
+
+Dùng khi cần render khác nhau ở cả hai trạng thái:
+
+```tsx
+{isModalOpen
+  ? <Modal onClose={handleCloseModal}><NewPost ... /></Modal>
+  : null
+}
+```
+
+Trong thực tế, cách 2 phổ biến nhất cho modal vì đơn giản. Nhưng cách 3 lại an toàn hơn với Typescript.
+
+**Tại sao?**
+
+Khi trả về JSX có điều kiện trong component, tránh dùng `&&` vì nếu điều kiện là `false`, biểu thức sẽ trả về giá trị `false` — không phải `null`.
+
+**TypeScript sẽ báo lỗi vì kiểu trả về đúng của component phải là** `JSX.Element | null`**, không phải** `boolean`**. Thay vào đó, hãy dùng ternary hoặc early return với** `null`**:**
+
+```tsx
+// ❌ Tránh
+return props.isOpen && <div>...</div>
+
+// ✅ Dùng ternary
+return props.isOpen ? <div>...</div> : null
+
+// ✅ Hoặc early return
+if (!props.isOpen) return null
+return <div>...</div>
+```
+
+## Conditional Rendering cho nút
+
+Nút “New Post” cũng thay đổi trạng thái tùy theo modal đang mở hay đóng — dùng ternary để đổi text và disabled:
+
+```tsx
+<button
+  onClick={handleOpenModal}
+  disabled={isModalOpen}
+  class={isModalOpen
+    ? "border-2 border-gray-300 text-gray-400 px-4 py-2 cursor-not-allowed"
+    : "border-2 border-black bg-yellow-300 px-4 py-2 font-semibold hover:bg-yellow-400"
+  }
+>
+  {isModalOpen ? 'Đang mở...' : '+ New Post'}
+</button>
+```
+
+## PostList hoàn chỉnh
+
+Ghép tất cả lại:
+
+```tsx PostList.tsx
+import { useState } from 'hono/jsx/dom'
+import { PostData } from './types'
+import Modal from './Modal'
+import NewPost from './NewPost'
+import Post from './Post'
+
+export default function PostList() {
+
+  // modal state
+  const [isModalOpen, setIsModalOpen] = useState(false)
+
+  // form state
+  const [enteredTitle, setEnteredTitle]   = useState('')
+  const [enteredAuthor, setEnteredAuthor] = useState('')
+
+  // list state
+  const [posts, setPosts] = useState<PostData[]>([
+    { id: 1, title: 'My first post',  author: 'Huu Nghi' },
+    { id: 2, title: 'My second post', author: 'Alex' },
+  ])
+
+  function handleOpenModal() {
+    setIsModalOpen(true)
+  }
+
+  function handleCloseModal() {
+    setIsModalOpen(false)
+  }
+
+  function handleTitleChange(e: any) {
+    setEnteredTitle(e.target.value)
+  }
+
+  function handleAuthorChange(e: any) {
+    setEnteredAuthor(e.target.value)
+  }
+
+  function handleSubmit(e: any) {
+    e.preventDefault()
+    if (!enteredTitle.trim()) return
+
+    const newPost: PostData = {
+      id: Date.now(),
+      title: enteredTitle,
+      author: enteredAuthor || 'Anonymous',
+    }
+
+    // append new post into post list
+    setPosts((prev) => [newPost, ...prev])
+
+    // clear form
+    setEnteredTitle('')
+    setEnteredAuthor('')
+    handleCloseModal() // đóng modal sau khi submit
+  }
+
+  return (
+    <div class="max-w-2xl mx-auto px-4">
+
+      {/* Nút mở modal — thay đổi theo trạng thái */}
+      <button
+        onClick={handleOpenModal}
+        disabled={isModalOpen}
+        class={isModalOpen
+          ? "border-2 border-gray-300 text-gray-400 px-4 py-2 cursor-not-allowed"
+          : "border-2 border-black bg-yellow-300 px-4 py-2 font-semibold shadow-[2px_2px_0_0] hover:bg-yellow-400"
+        }
+      >
+        {isModalOpen ? 'Đang mở...' : '+ New Post'}
+      </button>
+
+      {/* Modal — chỉ render khi isModalOpen = true */}
+      {isModalOpen && (
+        <Modal onClose={handleCloseModal}>
+          <NewPost
+            onTitleChange={handleTitleChange}
+            onAuthorChange={handleAuthorChange}
+            onSubmit={handleSubmit}
+          />
+        </Modal>
+      )}
+
+      {/* Danh sách bài viết */}
+      {posts.map((post) => (
+        <Post key={post.id} id={post.id} title={post.title} author={post.author} />
+      ))}
+    </div>
+  )
+}
+```
+
+## Tóm tắt
+
+Bài này kết hợp đủ các khái niệm đã học:
+
+- `useState` — quản lý `isModalOpen`, form state, và list state.
+- **State Lifting** — tất cả state và handler đặt trong `PostList`, truyền xuống `Modal` và `NewPost` qua props.
+- **Children Props** — `Modal` nhận nội dung linh hoạt qua `props.children`, không cần biết bên trong là gì.
+- **Conditional Rendering** — 3 cách: biến `modalContent`, `&&`, ternary — tùy độ phức tạp mà chọn.
+
+Bước tiếp theo: khi ứng dụng lớn hơn và nhiều component cùng cần truy cập một state (ví dụ: trạng thái đăng nhập, theme sáng/tối), truyền props qua nhiều tầng trở nên rườm rà — đó là lúc cần đến **Context API**.
