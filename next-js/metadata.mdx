@@ -1,0 +1,297 @@
+---
+title: "Tất tần tật về Metadata trong Next.js, có những điều tôi chắc bạn cũng không biết"
+sidebarTitle: "Tất tần tận về Metadata"
+description: "Metadata là thứ bạn không thấy khi dùng app, nhưng Google, Facebook và mọi crawler khác lại nhìn vào đó đầu tiên. Bài viết này đi qua toàn bộ những gì Next.js cung cấp cho metadata, từ cơ bản đến những chi tiết ít ai chú ý."
+---
+
+Bạn vừa deploy xong một blog cá nhân bằng Next.js.
+
+Giao diện đẹp, code sạch, mọi thứ chạy ngon. 
+
+Nhưng khi share link lên Facebook, cái preview hiện ra chỉ là một ô trắng tinh, không ảnh, không tiêu đề, không mô tả. Và khi Google index trang danh sách phân trang của bạn, nó thấy `/blog?page=1`, `/blog?page=2`, `/blog?page=3` như ba trang hoàn toàn khác nhau với cùng nội dung — duplicate content điển hình.
+
+Metadata là thứ bạn không thấy khi dùng app, nhưng Google, Facebook và mọi crawler khác lại nhìn vào đó đầu tiên. Bài viết này đi qua toàn bộ những gì Next.js cung cấp cho metadata, từ cơ bản đến những chi tiết ít ai chú ý.
+
+---
+
+## Metadata mặc định: đặt một lần, áp cho toàn bộ app
+
+Điểm xuất phát là `app/layout.tsx`. Export một object `metadata` ở đây và nó sẽ được áp dụng cho tất cả các trang trong app, trừ khi một trang nào đó tự override lại.
+
+```tsx app/layout.tsx
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Marketer Vietnam",
+  description: "Mạng xã hội dành cho marketer tại Việt Nam",
+};
+```
+
+Đơn giản vậy thôi. Bây giờ mọi trang đều có title và description mặc định nếu chúng không tự khai báo.
+
+---
+
+## Metadata tĩnh — override cho từng trang cụ thể
+
+Mỗi `page.tsx` hoặc `layout.tsx` đều có thể export `metadata` riêng để ghi đè lên metadata của parent.
+
+```tsx app/about/page.tsx
+export const metadata = {
+  title: "Về chúng tôi",
+  description: "Tìm hiểu thêm về Marketer Vietnam.",
+};
+```
+
+Cơ chế này hoạt động theo cây — Next.js sẽ gộp metadata từ root layout xuống đến trang hiện tại, nhưng với rule là **child ghi đè parent** theo từng field.
+
+---
+
+## Title Template: trick bạn cần biết
+
+Thay vì mỗi trang phải tự ghi tên thương hiệu `"Tiêu đề trang trong | Marketer Vietnam"`, bạn có thể khai báo một template ở root layout:
+
+```tsx app/layout.tsx
+export const metadata: Metadata = {
+  title: {
+    template: "%s | Marketer Vietnam",
+    default: "Marketer Vietnam",
+  },
+};
+```
+
+Khi đó, các trang con chỉ cần khai báo phần title của riêng mình:
+
+```tsx app/about/page.tsx
+export const metadata: Metadata = {
+  title: "Về chúng tôi",
+};
+
+// Output: <title>Về chúng tôi | Marketer Vietnam</title>
+```
+
+`%s` là placeholder — Next.js tự điền title của trang con vào đó. `default` là fallback dùng khi trang con không khai báo title (ví dụ trang chủ).
+
+Tuy nhiên, đôi khi bạn muốn một trang nào đó **bỏ qua template**, ví dụ landing page campaign với title riêng hoàn toàn. Dùng `absolute`:
+
+```tsx
+export const metadata: Metadata = {
+  title: {
+    absolute: "Mua ngay — Sale 50% hôm nay",
+  },
+};
+
+// Output: <title>Mua ngay — Sale 50% hôm nay</title>
+```
+
+---
+
+## Metadata động: khi title phụ thuộc vào data
+
+Với các trang như chi tiết bài viết, title và description phải được lấy từ database tùy theo slug. Next.js có hàm `generateMetadata` cho việc này:
+
+```tsx app/post/[slug]/page.tsx
+import { cache } from "react";
+import { getPostBySlug } from "@/db/queries";
+
+// Cache để tránh gọi DB 2 lần trong cùng một request
+const getPost = cache(async (slug: string) => {
+  return getPostBySlug(slug);
+});
+
+// Hàm này chạy ở Server nên truy cập được database an toàn
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
+  const { slug } = await params;
+  const post = await getPost(slug);
+
+  if (!post) return {};
+
+  return {
+    title: post.title,
+    description: post.excerpt,
+    openGraph: {
+      title: post.title,
+      description: post.excerpt,
+    },
+  };
+}
+
+export default async function PostDetailPage({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
+  const { slug } = await params;
+  const post = await getPost(slug);
+  // ...
+}
+```
+
+**Tại sao phải** `cache()`**?** 
+
+Vì cả `generateMetadata` và component page đều cần gọi `getPost` với cùng slug. Nếu không cache, Next.js sẽ gọi DB hai lần trong một request. `react/cache` đảm bảo lần gọi thứ hai trả về kết quả đã có trong bộ nhớ, không tốn thêm một query nào.
+
+**Một lưu ý khác**: bạn **không thể** vừa export `metadata` object vừa export `generateMetadata` trong cùng một file — chỉ được dùng một trong hai.
+
+`generateMetadata` chạy hoàn toàn trên server, giống như một Server Component — nó có thể `await`, truy cập database, đọc cookies, nhưng không bao giờ expose code hay data xuống client.
+
+---
+
+## OG Image: ảnh preview khi share link
+
+### Ảnh tĩnh cho toàn site
+
+Đặt file `opengraph-image.jpg` (hoặc `.png`) vào thư mục `app/`. Next.js tự nhận và inject vào thẻ `<meta property="og:image">` mà không cần config gì thêm.
+
+### Ảnh theo từng route
+
+Đặt `opengraph-image.jpg` vào thư mục của route đó. Ví dụ ảnh riêng cho trang blog:
+
+```text
+app/
+├── opengraph-image.jpg       ← fallback cho toàn site
+└── blog/
+    └── opengraph-image.jpg   ← ghi đè cho /blog và các trang con
+```
+
+### Ảnh dynamic sinh từ tiêu đề bài viết
+
+Đây là tính năng rất hay mà không phải ai cũng biết. Tạo file `opengraph-image.tsx` trong thư mục route động:
+
+```tsx app/post/[slug]/opengraph-image.tsx
+import { ImageResponse } from "next/og";
+import { getPostBySlug } from "@/db/queries";
+
+export const size = { width: 1200, height: 630 };
+export const contentType = "image/png";
+
+export default async function Image({
+  params,
+}: {
+  params: { slug: string };
+}) {
+  const post = await getPostBySlug(params.slug);
+
+  return new ImageResponse(
+    (
+      <div
+        style={{
+          background: "linear-gradient(135deg, #1e1e2e, #313244)",
+          width: "100%",
+          height: "100%",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "flex-start",
+          justifyContent: "flex-end",
+          padding: "60px",
+          color: "white",
+          fontFamily: "sans-serif",
+        }}
+      >
+        <div style={{ fontSize: 56, fontWeight: 700, lineHeight: 1.2 }}>
+          {post?.title}
+        </div>
+        <div style={{ fontSize: 28, marginTop: 20, opacity: 0.7 }}>
+          Marketer Vietnam
+        </div>
+      </div>
+    )
+  );
+}
+```
+
+Next.js tự render JSX này thành ảnh PNG và serve nó như một route động (`/post/[slug]/opengraph-image`). Mỗi bài viết có ảnh OG riêng, sinh tự động từ tiêu đề — không cần Figma, không cần upload tay.
+
+---
+
+## Canonical URL: quan trọng hơn bạn nghĩ
+
+Nếu bạn không khai báo canonical, **Next.js sẽ không tự inject thẻ** `<link rel="canonical">`. Google sẽ tự suy luận, nhưng đó là rủi ro — nhất là khi bạn có phân trang hay query params.
+
+```tsx
+export const metadata = {
+  metadataBase: new URL("https://www.marketervietnam.vn"),
+  alternates: {
+    canonical: "/blog",
+  },
+};
+```
+
+Với các trang phân trang (`/blog?page=2`, `/blog?page=3`), canonical nên trỏ về `/blog` — trang "gốc" không có query string. Nếu không, Google có thể coi mỗi trang là một URL riêng biệt với nội dung trùng lặp.
+
+```tsx
+export async function generateMetadata({ params }) {
+  const { slug } = await params;
+  return {
+    alternates: {
+      canonical: `/post/${slug}`,
+    },
+  };
+}
+```
+
+`metadataBase` cần được khai báo ở root layout để Next.js biết domain của bạn, từ đó resolve các path tương đối thành URL đầy đủ trong các thẻ meta.
+
+---
+
+## Extend metadata từ parent — và tại sao bạn nên làm vậy
+
+Khi khai báo OG image trong `generateMetadata`, có một pattern thường bị bỏ qua:
+
+```tsx
+export async function generateMetadata({ params }, parent) {
+  const post = await getPost(params.slug);
+  const previousImages = (await parent).openGraph?.images || [];
+
+  return {
+    openGraph: {
+      images: [post.coverImage, ...previousImages],
+    },
+  };
+}
+```
+
+Tại sao lại `...previousImages` thay vì ghi đè hoàn toàn? Vì parent layout có thể đã khai báo ảnh OG mặc định (logo site, ảnh fallback). Bằng cách spread `previousImages` vào sau, bạn đặt ảnh bài viết lên đầu (crawler lấy ảnh đầu tiên) nhưng vẫn giữ lại fallback nếu ảnh bài viết không tải được.
+
+---
+
+## Robots — kiểm soát crawler
+
+```tsx
+export const metadata: Metadata = {
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+    },
+  },
+};
+```
+
+`max-image-preview: "large"` cho phép Google dùng ảnh full-size trong kết quả tìm kiếm. `max-snippet: -1` có nghĩa là không giới hạn độ dài đoạn trích. Hai field này ít người để ý nhưng ảnh hưởng trực tiếp đến cách bài viết hiển thị trên Google Search.
+
+---
+
+## Tóm tắt
+
+| Tình huống | Dùng gì |
+| :-- | :-- |
+| Title mặc định cho toàn app | `metadata` trong `app/layout.tsx` |
+| Append tên site vào title | `title.template` |
+| Title không dùng template | `title.absolute` |
+| Title/description từ database | `generateMetadata` \+ `cache()` |
+| Ảnh OG mặc định | `opengraph-image.jpg` trong `app/` |
+| Ảnh OG sinh tự động từ data | `opengraph-image.tsx` |
+| Chống duplicate content | `alternates.canonical` |
+| Kiểm soát hiển thị trên Google | `robots.googleBot` |
+
+Metadata là một trong những thứ ít hào nhoáng nhất trong front-end, nhưng nó ảnh hưởng trực tiếp đến SEO và cách người dùng nhìn thấy app của bạn khi share link. Next.js đã làm cho việc này khá tiện lợi — quan trọng là biết từng công cụ dùng khi nào.
+
+Bước tiếp theo nếu bạn muốn đào sâu hơn: tìm hiểu về **Structured Data (JSON-LD)** để thêm rich snippets cho Google, hoặc **Sitemap** generation với `app/sitemap.ts` — cả hai đều được Next.js App Router hỗ trợ native.
