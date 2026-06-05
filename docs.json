@@ -41,6 +41,13 @@
           }
         ],
         "icon": "antenna"
+      },
+      {
+        "tab": "React",
+        "pages": [
+          "react/index",
+          "react/low-level-react"
+        ]
       }
     ]
   },

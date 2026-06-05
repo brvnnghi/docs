@@ -1,0 +1,204 @@
+---
+title: "Hiểu gốc rễ của React"
+sidebarTitle: "Hiểu gốc rễ của React"
+---
+
+Hầu hết mọi người học React đều bắt đầu bằng Vite hoặc Create React App — chạy một lệnh, mọi thứ tự dựng lên, và bạn bắt đầu viết component luôn.
+
+Tiện, nhưng có một vấn đề: bạn đang lái xe mà chưa biết động cơ hoạt động thế nào.
+
+Bài này sẽ không dạy bạn cách dùng React nhanh nhất. Thay vào đó, chúng ta sẽ bắt đầu từ mức thấp nhất có thể — không build tool, không CLI — để hiểu React thực sự là gì trước khi các công cụ che đi sự phức tạp.
+
+## Bước 1: React thuần, không JSX
+
+Cách đơn giản nhất để chạy React là dùng CDN — nhúng thẳng vào file HTML như bất kỳ thư viện JS nào khác.
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- React core -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <!-- ReactDOM: xử lý việc render React vào browser -->
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <!-- component bằng vanilla -->
+    <script src="script.js"></script>
+  </head>
+  <body>
+    <!-- điểm gắn kết của toàn bộ React app -->
+    <div id="root"></div>
+  </body>
+</html>
+```
+
+Sau đó tạo component và render bằng JavaScript thuần:
+
+```javascript
+// script.js
+// tạo component con
+function Header() {
+  return React.createElement('h2', null, 'My App Header');
+  //                          ^tag   ^props  ^children
+}
+
+// tạo component cha, lồng Header bên trong
+function App() {
+  return React.createElement('div', null,
+    React.createElement(Header), // component tự định nghĩa
+    React.createElement('h1', null, 'Hello, React') // thẻ HTML thông thường
+  );
+}
+
+// gắn React vào #root và render
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(React.createElement(App));
+```
+
+`React.createElement(tag, props, ...children)` là hàm cốt lõi của React. Mọi component, mọi thẻ JSX bạn viết sau này — đều được biên dịch về hàm này.
+
+Đây là mức thấp nhất, và bạn thấy ngay: nó rất dài dòng, khó đọc.
+
+## Bước 2: JSX ra đời để giải quyết vấn đề đó
+
+**JSX** (JavaScript XML) là cú pháp mở rộng cho phép bạn viết HTML-like trực tiếp trong JavaScript. Thay vì:
+
+```jsx
+React.createElement('div', null,
+  React.createElement(Header),
+  React.createElement('h1', null, 'Hello, React')
+);
+```
+
+Bạn viết:
+
+```jsx
+<div>
+  <Header />
+  <h1>Hello, React</h1>
+</div>
+```
+
+Dễ đọc hơn rất nhiều. Nhưng JSX **không phải JavaScript hợp lệ** — browser không hiểu nó. Cần có một bước biên dịch (transpile) để chuyển JSX về `React.createElement` trước khi chạy.
+
+Công cụ làm việc đó là **Babel**.
+
+## Bước 3: Thêm Babel để chạy JSX trên browser
+
+```html
+<!-- thêm Babel vào head -->
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+```
+
+```html
+<!-- khai báo type="text/babel" để Babel xử lý đoạn script này -->
+<script type="text/babel">
+  function Header() {
+    return (
+      <header>
+        <h2>App Header</h2>
+      </header>
+    );
+  }
+
+  function App() {
+    return (
+      <div>
+        <Header />
+        <h1>Hello, React</h1>
+      </div>
+    );
+  }
+
+  const root = ReactDOM.createRoot(document.getElementById('root'));
+  root.render(<App />);
+</script>
+```
+
+Babel đọc `type="text/babel"`, biên dịch JSX thành `React.createElement`, sau đó browser chạy bình thường. Đây là cách Vite và Next.js làm — chỉ là tự động hóa bước này đi.
+
+> ⚠️ Cách dùng Babel qua CDN chỉ phù hợp để học và thử nghiệm. Không dùng cho production vì Babel biên dịch trực tiếp trên browser, gây chậm.
+
+## Những điều cần biết về JSX
+
+### 1. Luôn có một root element
+
+JSX bắt buộc phải được bọc trong **một thẻ duy nhất** ở ngoài cùng. Nếu không muốn thêm thẻ `<div>` thừa vào DOM, dùng Fragment:
+
+```jsx
+// ❌ Lỗi — hai thẻ ngang hàng, không có root
+return (
+  <h1>Hello</h1>
+  <p>World</p>
+);
+
+// ✅ Dùng Fragment — không tạo thêm thẻ trong DOM
+return (
+  <>
+    <h1>Hello</h1>
+    <p>World</p>
+  </>
+);
+```
+
+`<>...</>` là viết tắt của `<React.Fragment>...</React.Fragment>`.
+
+### 2. Component tự định nghĩa thì tự đóng
+
+```jsx
+<Header />   // ✅ component
+<header>     // thẻ HTML, cần đóng đầy đủ
+```
+
+### 3. Nhúng JavaScript bằng `{}`
+
+Bên trong JSX, dùng `{}` để chạy bất kỳ biểu thức JavaScript nào:
+
+```jsx
+const name = 'John';
+const isMember = true;
+
+function App() {
+  return (
+    <>
+      <h1>Hello, {name}!</h1>
+
+      {/* Ternary operator */}
+      {isMember ? <p>Welcome back!</p> : <p>Join us!</p>}
+
+      {/* Short-circuit — chỉ render nếu điều kiện true */}
+      {isMember && <p>Welcome back!</p>}
+    </>
+  );
+}
+```
+
+Lưu ý: `{}` chỉ nhận **biểu thức** (expression), không nhận **câu lệnh** (statement). Đó là lý do `if/else` thông thường không dùng được trực tiếp trong JSX — phải dùng ternary, hoặc tách ra ngoài:
+
+```jsx
+function App() {
+  let message;
+
+  // if/else viết bên ngoài JSX — hoàn toàn bình thường
+  if (isMember) {
+    message = 'Welcome back';
+  } else {
+    message = 'Join us';
+  }
+
+  return <p>{message}</p>;
+}
+```
+
+### 4. Một số attribute phải đổi tên
+
+Vì JSX chạy trong JavaScript, một số từ khóa bị trùng, nên...
+
+- `class` phải đổi thành `className` 
+- `for` (trong `label` của `form`) phải đổi thành `htmlFor`
+
+## Lời kết trước khi vào học
+
+Bản chất của React không thay đổi — JSX chỉ là lớp cú pháp bên trên `React.createElement`. Hiểu điều này giúp bạn không bị bối rối khi gặp lỗi biên dịch, và hiểu tại sao JSX lại có những quy tắc “kỳ lạ” như bắt buộc có root element hay không dùng được `if` trực tiếp.
+
+Bước tiếp theo: khi đã hiểu nền tảng, chuyển sang dùng **Vite** để có môi trường phát triển thực sự — hot reload, module bundling, và không cần lo về Babel nữa.
