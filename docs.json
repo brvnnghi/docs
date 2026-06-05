@@ -27,152 +27,20 @@
             "group": "Giới thiệu",
             "pages": [
               "next-js/index",
-              "hoc-next-js-bay-gio-co-muon-khong-140",
-              "9-ieu-co-ban-au-tien-khi-en-voi-next-js-126",
-              "next-js/10-cau-hoi-phong-van-next-js-thuong-gap"
+              "next-js/9-starter-notes",
+              "next-js/10-interview-questions"
             ]
           },
           {
             "group": "Cơ bản",
             "pages": [
-              "lam-quen-voi-fetch-du-lieu-loading-error-not-found-trong-next-127",
-              "tu-xay-dung-image-picker-co-preview-trong-react-129",
+              "next-js/data-fetching",
+              "next-js/build-your-own-image-picker",
               "next-js/metadata"
             ]
           }
         ],
         "icon": "antenna"
-      },
-      {
-        "tab": "Onboarding",
-        "groups": [
-          {
-            "group": "Welcome",
-            "pages": ["index"]
-          },
-          {
-            "group": "Your first days",
-            "pages": [
-              "onboarding/first-day",
-              "onboarding/first-week",
-              "onboarding/meet-the-team"
-            ]
-          },
-          {
-            "group": "Tools & access",
-            "pages": [
-              "onboarding/tools/laptop-setup",
-              "onboarding/tools/account-access",
-              "onboarding/tools/vpn-setup"
-            ]
-          }
-        ]
-      },
-      {
-        "tab": "HR & People",
-        "groups": [
-          {
-            "group": "Overview",
-            "pages": ["hr-people/index"]
-          },
-          {
-            "group": "Benefits & time off",
-            "pages": [
-              "hr-people/benefits",
-              "hr-people/time-off"
-            ]
-          },
-          {
-            "group": "Growth & pay",
-            "pages": [
-              "hr-people/performance-reviews",
-              "hr-people/compensation/index",
-              "hr-people/compensation/salary-bands",
-              "hr-people/compensation/equity-overview"
-            ]
-          }
-        ]
-      },
-      {
-        "tab": "IT & Security",
-        "groups": [
-          {
-            "group": "Overview",
-            "pages": ["it-security/index"]
-          },
-          {
-            "group": "Access & devices",
-            "pages": [
-              "it-security/access-requests",
-              "it-security/device-policy"
-            ]
-          },
-          {
-            "group": "Security training",
-            "pages": [
-              "it-security/security-training/index",
-              "it-security/security-training/phishing",
-              "it-security/security-training/data-handling"
-            ]
-          }
-        ]
-      },
-      {
-        "tab": "Policies",
-        "groups": [
-          {
-            "group": "Overview",
-            "pages": ["policies/index"]
-          },
-          {
-            "group": "Conduct & spend",
-            "pages": [
-              "policies/code-of-conduct",
-              "policies/expense-reimbursement",
-              "policies/travel-policy"
-            ]
-          },
-          {
-            "group": "Remote work",
-            "pages": [
-              "policies/remote-work/index",
-              "policies/remote-work/home-office-setup",
-              "policies/remote-work/time-zones"
-            ]
-          }
-        ]
-      },
-      {
-        "tab": "Engineering",
-        "groups": [
-          {
-            "group": "Overview",
-            "pages": ["engineering/index"]
-          },
-          {
-            "group": "Setup & deployment",
-            "pages": [
-              "engineering/dev-setup",
-              "engineering/deployment"
-            ]
-          },
-          {
-            "group": "Incident response",
-            "pages": [
-              "engineering/incident-response/index",
-              "engineering/incident-response/on-call",
-              "engineering/incident-response/postmortem"
-            ]
-          },
-          {
-            "group": "Architecture",
-            "pages": [
-              "engineering/architecture/index",
-              "engineering/architecture/services-overview",
-              "engineering/architecture/data-models"
-            ]
-          }
-        ]
       }
     ]
   },
