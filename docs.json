@@ -21,37 +21,6 @@
   "navigation": {
     "tabs": [
       {
-        "tab": "Next.js",
-        "groups": [
-          {
-            "group": "Giới thiệu",
-            "pages": [
-              "next-js/index",
-              "next-js/9-starter-notes",
-              "next-js/10-interview-questions"
-            ]
-          },
-          {
-            "group": "Cơ bản",
-            "pages": [
-              "next-js/data-fetching",
-              "next-js/build-your-own-image-picker",
-              "next-js/metadata"
-            ]
-          },
-          {
-            "group": "Nâng cao",
-            "pages": [
-              "next-js/optimistic-ui-update",
-              "next-js/cache-layers",
-              "next-js/intercepting-routes",
-              "next-js/userouter-you-dont-know"
-            ]
-          }
-        ],
-        "icon": "antenna"
-      },
-      {
         "tab": "React",
         "pages": [
           "react/index",
@@ -77,6 +46,38 @@
             "pages": [
               "typescript/the-basics-1",
               "typescript/the-basics-2"
+            ]
+          }
+        ],
+        "icon": "type-outline"
+      },
+      {
+        "tab": "Next.js",
+        "icon": "antenna",
+        "groups": [
+          {
+            "group": "Giới thiệu",
+            "pages": [
+              "next-js/index",
+              "next-js/9-starter-notes",
+              "next-js/10-interview-questions"
+            ]
+          },
+          {
+            "group": "Cơ bản",
+            "pages": [
+              "next-js/data-fetching",
+              "next-js/build-your-own-image-picker",
+              "next-js/metadata"
+            ]
+          },
+          {
+            "group": "Nâng cao",
+            "pages": [
+              "next-js/optimistic-ui-update",
+              "next-js/cache-layers",
+              "next-js/intercepting-routes",
+              "next-js/userouter-you-dont-know"
             ]
           }
         ]

@@ -68,7 +68,7 @@ const Rating = () => {
       <h2>Rate Your Experience</h2>
       <div className="stars">
         {stars.map((star) => (
-          <span **key={star}** className="star">
+          <span key={star} className="star">
             {'\u2605'}
           </span>
         ))}
@@ -86,7 +86,7 @@ const Rating = () => {
 Nhân tiện, ngoài lề một về hàm tạo mảng tự động. Nếu bạn muốn tạo 1 array với các số tuần tự:
 
 ```jsx
-**const stars = Array.from({ length: 5 }, (_, i) => i + 1);**
+const stars = Array.from({ length: 5 }, (_, i) => i + 1);
 
 // hàm Array.from() tạo array mới từ array-like object hoặc iterable
 Array.from([1, 2, 3]); // [1, 2, 3] - từ array
@@ -177,7 +177,7 @@ Hai điểm khác so với CSS thông thường:
 
 **Import như một object** — `import styles from './Rating.module.css'` trả về một object, mỗi class name là một key. Dùng `styles.container` thay vì `"container"`.
 
-**Tên file phải có** `**.module.css**` — đây là quy ước để bundler (Vite, webpack) nhận ra và xử lý class scoping tự động. File `Rating.css` bình thường sẽ không có tính năng này.
+**Tên file phải có** `.module.css` — đây là quy ước để bundler (Vite, webpack) nhận ra và xử lý class scoping tự động. File `Rating.css` bình thường sẽ không có tính năng này.
 
 Khi build xong, class `.star` trong `Rating.module.css` sẽ thành tên kiểu `_star_x7k2p_1` — unique, không đụng hàng với `.star` ở bất kỳ component nào khác.
 
