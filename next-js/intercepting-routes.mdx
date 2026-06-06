@@ -69,7 +69,7 @@ Intercepting Routes dùng ký hiệu tương tự relative path, nhưng dựa tr
 └── page.tsx                ← feed ảnh
 ```
 
-**Tại sao dùng** `**(..)photo**` **mà không phải** `**(.)photo**`**?**
+**Tại sao dùng** `(..)photo` **mà không phải** `(.)photo`**?**
 
 Slot `@modal` nằm trong `app/`, cùng cấp với `photo/`. Nhưng vì `@modal` không tạo URL segment, khi tính cấp để intercept `/photo/[id]`, ta đang đứng ở `app/` nhìn vào `app/photo/` — tức là **một cấp dưới** → dùng `(..)`.
 

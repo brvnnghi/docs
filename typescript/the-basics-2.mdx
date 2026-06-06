@@ -1,0 +1,405 @@
+---
+title: "TypeScript cơ bản (phần 2)"
+description: "Union Type, Object Type, Type Alias, và Generic"
+---
+
+Trong bài trước, mỗi biến hay tham số chỉ nhận đúng một type. Nhưng thực tế không phải lúc nào cũng vậy. Một hàm có thể nhận cả `number` lẫn `string`, một object có thể có cấu trúc phức tạp với nhiều field.
+
+Bài viết này đi vào những cách TypeScript xử lý các tình huống đó.
+
+## Union Type: một biến, nhiều type
+
+Khi một tham số có thể là nhiều kiểu khác nhau, dùng `|` để khai báo:
+
+```typescript
+function add(num1: number | string, num2: number | string) {
+  if (typeof num1 === 'number' && typeof num2 === 'number') {
+    return num1 + num2;
+  }
+  if (typeof num1 === 'string' && typeof num2 === 'string') {
+    return num1 + ' ' + num2;
+  }
+  // nếu mixed types, chuyển hết sang number
+  return +num1 + +num2;
+}
+
+add(1, 2);         // 3
+add('Hello', 'World'); // "Hello World"
+add('1', 2);       // 3
+```
+
+Lưu ý quan trọng: khi dùng union type, TypeScript yêu cầu bạn phải **tự kiểm tra type bên trong hàm** trước khi dùng — vì nó không biết lúc runtime biến đó đang là `number` hay `string`. Đây gọi là _type narrowing_ (thu hẹp type), và `typeof` là cách phổ biến nhất để làm điều đó.
+
+## Object Type: khai báo cấu trúc của object
+
+Thay vì chỉ khai báo `object` chung chung, TypeScript cho phép định nghĩa cụ thể object đó có những field nào và type của từng field:
+
+```typescript
+function printUser(user: { name: string; age: number; isActive: boolean }) {
+  console.log(`${user.name}, ${user.age} tuổi`);
+}
+
+printUser({ name: 'Alex', age: 25, isActive: true });  // ✅
+printUser({ name: 'Alex', age: '25', isActive: true }); // ❌ age phải là number
+printUser({ name: 'Alex', age: 25 });                   // ❌ thiếu isActive
+```
+
+Kiểu object như thế này xuất hiện thường xuyên khi truyền data giữa các hàm, hoặc khi nhận response từ API.
+
+Và đây **không phải custom type** — đây chỉ là cách TypeScript mô tả cấu trúc của một object thông thường. Custom type thực sự đến ở phần tiếp theo.
+
+## Type Alias — đặt tên cho type
+
+Khi object type hoặc union type dài và dùng lại nhiều lần, TypeScript cho phép đặt tên cho chúng bằng từ khóa `type`:
+
+```typescript
+// đặt tên cho Union Type
+type NumOrString = number | string;
+
+// đặt tên cho Custom Type
+type User = {
+  name: string;
+  age: number;
+  isActive: boolean;
+};
+
+function printUser(user: User) {
+  console.log(user.name);
+}
+
+function updateUser(id: number, data: User) { ... }
+```
+
+Thay vì lặp lại `{ name: string; age: number; isActive: boolean }` ở nhiều chỗ, bạn chỉ cần viết `User`. Type alias đặc biệt hữu dụng khi:
+
+- Một object type được dùng ở nhiều hàm khác nhau
+- Cần kết hợp nhiều type lại: `type AdminUser = User & { permissions: string[] }`
+- Union type dài và có ý nghĩa riêng: `type Status = 'pending' | 'sent' | 'delivered'`
+
+### Ví dụ chi tiết về Custom Type
+
+Với một object type được sử dụng nhiều nơi, với ví dụ `type User` như trên, chúng ta mở rộng ra như sau:
+
+```typescript
+type User = {
+  name: string;
+  email: string;
+  age?: number; // optional — có hoặc không đều được
+};
+```
+
+Dấu `?` sau tên field nghĩa là **optional** — bạn không bắt buộc phải cung cấp field đó khi tạo object. TypeScript sẽ hiểu type của `age` lúc này là `number | undefined`.
+
+Sau khi định nghĩa, dùng như một type bình thường:
+
+```typescript
+const user: User = {
+  name: 'Jane',
+  email: 'jane@example.com',
+  // age bỏ qua cũng được vì optional ✅
+};
+
+const userWithAge: User = {
+  name: 'Alex',
+  email: 'alex@example.com',
+  age: 25, // ✅
+};
+```
+
+TypeScript kiểm tra chặt theo hai hướng — **thiếu field bắt buộc** hoặc **thêm field không có trong type** đều bị báo lỗi:
+
+```typescript
+const badUser: User = {
+  name: 'Jane',
+  // ❌ Lỗi: thiếu 'email' — không có dấu ? nên bắt buộc
+};
+
+const badUser2: User = {
+  name: 'Jane',
+  email: 'jane@example.com',
+  city: 'Hanoi', // ❌ Lỗi: 'city' không tồn tại trong type User
+};
+```
+
+Điểm hay của custom type là dùng lại được ở bất kỳ đâu — tham số hàm, biến, mảng:
+
+```typescript
+function printUser(user: User) {
+  console.log(`Hiển thị email của ${user.email}`);
+}
+
+const users: User[] = [
+  { name: 'Jane', email: 'jane@example.com' },
+  { name: 'Alex', email: 'alex@example.com', age: 25 },
+];
+```
+
+## Type trong Function — tham số, return type, và destructuring
+
+### Tham số và return type
+
+Khai báo type cho tham số hàm thì đã quen. Ngoài ra nên khai báo luôn **return type** — type của giá trị hàm trả về — ngay sau dấu ngoặc đóng:
+
+```typescript
+// Vào number - Trả về number
+function add(a: number, b: number): number {
+  return a + b;
+}
+
+// Vào number - Không trả về gì (đặc biệt là các hàm thực thi) — dùng void
+function logSum(a: number, b: number): void {
+  console.log(a + b);
+}
+```
+
+`void` nghĩa là hàm không trả về giá trị nào (hoặc trả về `undefined`). Nếu bạn vô tình thêm `return someValue` vào hàm void, TypeScript sẽ báo lỗi ngay.
+
+Khi dùng custom type làm tham số, hàm sẽ trông gọn và rõ ràng hơn nhiều:
+
+```typescript
+type User = {
+  name: string;
+  email: string;
+};
+
+function sendEmail(user: User): void {
+  console.log(`Gửi email đến ${user.name} tại ${user.email}`);
+}
+
+sendEmail({ name: 'Jane', email: 'jane@example.com' }); // ✅
+sendEmail({ name: 'Jane' }); // ❌ Lỗi: thiếu email
+```
+
+### Destructuring trong tham số
+
+Khi destructure object ngay trong tham số hàm, khai báo type theo cú pháp sau:
+
+```typescript
+function printUser({ name, age }: { name: string; age: number }) {
+  console.log(`${name} ${age} tuổi`);
+}
+```
+
+Trông hơi dài vì phải viết type inline. Nếu dùng lại nhiều lần, nên dùng type alias cho gọn:
+
+```typescript
+type User = { name: string; age: number };
+
+function printUser({ name, age }: User) {
+  console.log(`${name} ${age} tuổi`);
+}
+```
+
+## Vì sao phải dùng `as number`? Và khi nào nên dùng `as`?
+
+Nhìn lại ví dụ từ bài học:
+
+```typescript
+const result = add(4, 3);
+
+printResult({ 
+  val: result as number, 
+  timestamp: new Date() 
+});
+```
+
+Lý do phải dùng `as number` ở đây: hàm `add` nhận union type `number | string`, nên TypeScript suy ra giá trị trả về cũng là `number | string`. Nhưng `printResult` yêu cầu `val: number` — không chấp nhận `string`. Vì vậy phải dùng `as number` để nói với TypeScript: _“Tin tôi, lúc runtime cái này chắc chắn là number.”_
+
+Cách làm này hoạt động được, nhưng trông có vẻ rối. Cách đúng hơn là **khai báo kiểu trả về của hàm một cách rõ ràng**:
+
+```typescript
+function add(num1: number, num2: number): number {
+  return num1 + num2;
+}
+
+const result = add(4, 3); // TypeScript biết chắc result là number
+printResult({ val: result, timestamp: new Date() }); // ✅ không cần `as`
+```
+
+Cú pháp `: number` sau dấu ngoặc đóng là khai báo **return type** của hàm. Khi làm vậy, TypeScript sẽ kiểm tra bên trong hàm có thực sự trả về `number` không — và bên ngoài hàm cũng biết chính xác type của giá trị trả về.
+
+**Nguyên tắc dùng** `as`**:** chỉ dùng khi bạn biết chắc type lúc runtime mà TypeScript không tự suy ra được — chẳng hạn khi làm việc với DOM (`as HTMLInputElement`) hoặc khi nhận data từ ngoài vào. Không nên dùng `as` để “vá” lỗi type vì lười sửa hàm.
+
+## Interface — cách khác để định nghĩa object type
+
+`interface` là cú pháp thay thế cho `type` khi định nghĩa cấu trúc object:
+
+```typescript
+interface User {
+  name: string;
+  age: number;
+  isActive: boolean;
+}
+
+// Dùng y chang type alias
+function printUser(user: User) {
+  console.log(user.name);
+}
+```
+
+### `type` vs `interface` — khác nhau ở đâu?
+
+Về cơ bản, khi định nghĩa object type, cả hai đều làm được việc như nhau. Sự khác biệt nằm ở một số tình huống nâng cao hơn:
+
+|  | `type` | `interface` |
+| :-- | :-- | :-- |
+| Định nghĩa object | ✅ | ✅ |
+| Union type (`A \| B`) | ✅ | ❌ |
+| Extend / kế thừa | `type B = A & {...}` | `interface B extends A {...}` |
+| Merge declaration | ❌ | ✅ (khai báo 2 lần tự động merge) |
+| Dùng với class | Được | Phổ biến hơn |
+
+**Trong thực tế:** dùng `interface` khi định nghĩa cấu trúc object, đặc biệt nếu sau này có thể cần extend hoặc dùng với class. Dùng `type` khi cần union type, intersection, hoặc các type phức tạp hơn.
+
+Nhiều codebase chọn một trong hai và dùng nhất quán — không cần trộn lẫn cả hai.
+
+## Generic Type — type linh hoạt theo ngữ cảnh
+
+Generic là cách viết một type “chưa xác định” và để TypeScript điền vào sau. Dùng generic thay cho `any` khi bạn chưa biết trước type cụ thể là gì — nhưng vẫn muốn giữ type safety.
+
+Generic có ích thật sự khi bạn viết **hàm dùng chung cho nhiều type khác nhau**, mà vẫn giữ được type safety. Vài ví dụ thực tế hay gặp:
+
+**Lấy phần tử đầu tiên của mảng:**
+
+```typescript
+function first<T>(arr: T[]): T | undefined {
+  return arr[0];
+}
+
+const name = first(['An', 'Bình']); // type: string | undefined
+const score = first([9, 8, 10]);    // type: number | undefined
+```
+
+Nếu không dùng generic, phải viết `firstString`, `firstNumber`… riêng từng cái, hoặc dùng `any` và mất type safety.
+
+**Wrap kết quả API — pattern rất phổ biến:**
+
+```typescript
+type ApiResponse<T> = {
+  data: T;
+  error: string | null;
+  loading: boolean;
+};
+
+// Dùng cho user
+const userResponse: ApiResponse<User> = {
+  data: { name: 'Jane', email: 'jane@example.com' },
+  error: null,
+  loading: false,
+};
+
+// Dùng cho danh sách bài viết
+const postsResponse: ApiResponse<Post[]> = {
+  data: [...],
+  error: null,
+  loading: false,
+};
+```
+
+Một cái `ApiResponse<T>` dùng được cho mọi loại data, không cần viết lại cấu trúc `{ data, error, loading }` nhiều lần.
+
+**Tóm lại:** generic hữu ích khi bạn có logic hoặc cấu trúc **lặp lại y chang** nhưng **type bên trong thay đổi**. Nếu chỉ dùng một type duy nhất, không cần generic — khai báo thẳng type đó là đủ.
+
+Khác với `any` — nếu dùng `any`, TypeScript sẽ không báo lỗi ở dòng cuối, dẫn đến vỡ lúc runtime. Generic giữ nguyên type safety: TypeScript biết `result3` là `boolean` và kiểm tra đúng.
+
+Trong thực tế, TypeScript thường tự suy ra `T` mà không cần khai báo tường minh:
+
+```typescript
+function first<T>(arr: T[]): T | undefined {
+  return arr[0];
+}
+
+// Khai báo tường minh — không cần thiết
+const name = first<string>(['An', 'Bình']);
+
+// TypeScript tự suy ra — viết thế này là đủ
+const name = first(['An', 'Bình']); // TypeScript thấy mảng string → tự hiểu T = string
+const score = first([9, 8, 10]);    // TypeScript thấy mảng number → tự hiểu T = number
+```
+
+TypeScript nhìn vào **giá trị bạn truyền vào** và tự suy ra `T` là gì — không cần bạn nói thêm.
+
+Trường hợp **phải khai báo tường minh** là khi TypeScript không có đủ thông tin để tự suy:
+
+```typescript
+// Hàm tạo mảng rỗng — không có giá trị nào để TypeScript nhìn vào
+function createList<T>(): T[] {
+  return [];
+}
+
+const names = createList();         // ❌ TypeScript suy ra T = unknown
+const names = createList<string>(); // ✅ rõ ràng, names là string[]
+```
+
+Hoặc khi gọi `fetch` — không có giá trị nào lúc compile để TypeScript tự suy:
+
+```typescript
+const data = await res.json() as User; // phải nói rõ vì TypeScript không biết API trả về gì
+```
+
+Tóm lại: để TypeScript tự suy trừ khi nó báo lỗi hoặc suy ra `unknown` — lúc đó mới cần khai báo tường minh.
+
+Generic cũng là cú pháp đằng sau `Array<string>` và `Promise<string>` — đó là lý do chúng trông giống nhau:
+
+```typescript
+let names: Array<string> = ['An', 'Bình'];  // = string[]
+let scores: Array<number> = [9, 8, 10];     // = number[]
+```
+
+`Array<string>` và `string[]` hoàn toàn tương đương — chỉ là hai cú pháp khác nhau. Cú pháp `string[]` ngắn gọn hơn nên phổ biến hơn trong thực tế.
+
+`<string>` là tham số type, nói cho TypeScript biết “bên trong cái này chứa gì”:
+
+- `Array<string>` → mảng chứa string
+- `Promise<string>` → Promise mà khi resolve sẽ trả về string
+
+## Promise và `fetch` — type cần chú ý
+
+`Promise` là một generic type. Khi khai báo, bạn cho TypeScript biết hàm async này sẽ trả về gì sau khi resolve:
+
+```typescript
+async function getUser(): Promise<User> {
+  const res = await fetch('/api/user');
+  const data = await res.json();
+  return data;
+}
+```
+
+Tuy nhiên, `fetch` có một điểm cần lưu ý: `res.json()` **luôn trả về** `Promise<any>` — TypeScript không biết gì về cấu trúc của data trả về. Vì vậy cần ép kiểu thủ công:
+
+```typescript
+// Cách 1: ép kiểu khi gọi .json()
+const data = await res.json() as User;
+
+// Cách 2: khai báo generic cho res.json() (ít dùng hơn)
+const data: User = await res.json();
+```
+
+Một vài điều cần nhớ khi dùng `fetch`:
+
+```typescript
+async function fetchUser(id: number): Promise<User> {
+  const res = await fetch(`/api/users/${id}`);
+
+  if (!res.ok) {
+    throw new Error(`HTTP error: ${res.status}`);
+  }
+
+  return res.json() as Promise<User>;
+}
+```
+
+- `fetch` không tự throw lỗi khi server trả về 404 hay 500 — phải tự kiểm tra `res.ok`
+- TypeScript không thể xác minh data từ API có đúng cấu trúc `User` không — đó là trách nhiệm của bạn (hoặc dùng thư viện như Zod để validate)
+- Nếu cần an toàn hơn, khai báo return type là `Promise<User | null>` và xử lý cả trường hợp thất bại
+
+## Tóm tắt
+
+Buổi này có khá nhiều concept mới, nhưng tóm lại:
+
+- **Union type** (`|`) cho phép một biến nhận nhiều type, kèm theo việc phải dùng `typeof` để thu hẹp type bên trong hàm
+- **Object type** nên khai báo cấu trúc cụ thể, không dùng `object` chung chung
+- **Khai báo return type** của hàm giúp tránh phải dùng `as` ở nơi khác
+- **Type alias** và **interface** đều dùng để đặt tên cho object type — `type` linh hoạt hơn, `interface` phổ biến hơn khi làm việc với object và class
+- **Generic** (`Array<T>`, `Promise<T>`) là cách TypeScript xử lý các cấu trúc “chứa gì đó” — type bên trong được xác định khi dùng
+- `fetch` luôn trả về `Promise<any>` — phải tự ép kiểu và tự validate

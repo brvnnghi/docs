@@ -1,0 +1,291 @@
+---
+title: "TypeScript cơ bản (phần 1)"
+---
+
+Bạn đang viết một hàm tính tổng hai số. Đơn giản thôi:
+
+```typescript
+function add(num1, num2) {
+  return num1 + num2;
+}
+
+console.log(add(1, 6));    // 7 ✅
+console.log(add('1', '6')); // 16 ❌
+```
+
+Hàm vẫn chạy, không có lỗi nào cả. Nhưng kết quả sai hoàn toàn — vì JavaScript âm thầm ghép hai chuỗi thay vì cộng hai số. Đây là kiểu bug cực kỳ phổ biến, và cực kỳ khó phát hiện ở production.
+
+**TypeScript sinh ra để giải quyết đúng vấn đề này.**
+
+## TypeScript là gì?
+
+TypeScript là một _superset_ của JavaScript — nghĩa là mọi code JS đều là code TS hợp lệ. Điểm khác biệt là TypeScript cho phép (và khuyến khích) bạn khai báo **kiểu dữ liệu (type)** cho các biến, tham số, và giá trị trả về.
+
+TypeScript không chạy trực tiếp trên trình duyệt hay Node.js. Nó cần được **compile** (biên dịch) sang JavaScript thông qua trình biên dịch `tsc`. Quá trình này cũng là lúc TypeScript kiểm tra các lỗi type — trước khi code chạy thật.
+
+### Vấn đề trên được giải quyết thế nào?
+
+```typescript
+function add(num1: number, num2: number) {
+  return num1 + num2;
+}
+
+console.log(add(1, 6));      // 7 ✅
+console.log(add('1', '6'));  // ❌ Lỗi ngay lúc compile
+```
+
+Bằng cách khai báo `num1: number` và `num2: number`, TypeScript hiểu rằng hàm này **chỉ chấp nhận số**. Nếu bạn truyền vào chuỗi, trình biên dịch sẽ báo lỗi ngay — không cần chạy code mới biết sai.
+
+## Các core types cần biết
+
+TypeScript có một số kiểu dữ liệu cơ bản thường dùng nhất. Cú pháp khai báo type đều theo dạng `tênBiến: type`.
+
+### `number`
+
+Bao gồm mọi loại số — nguyên, thập phân, âm. Không có kiểu `int` hay `float` riêng như một số ngôn ngữ khác.
+
+```typescript
+let age: number = 25;
+let price: number = 9.99;
+let temperature: number = -3;
+
+age = '25'; // ❌ Lỗi: không thể gán string vào number
+```
+
+### `string`
+
+Chuỗi văn bản, khai báo bằng `'`, `"` hoặc template literal \`\`\`.
+
+```typescript
+let name: string = 'Alex';
+let greeting: string = `Xin chào, ${name}!`;
+
+name = 42; // ❌ Lỗi
+```
+
+### `boolean`
+
+Chỉ nhận đúng hai giá trị: `true` hoặc `false`. Không chấp nhận `0`, `1`, `'true'`… như JavaScript vẫn hay dùng.
+
+```typescript
+let isLoggedIn: boolean = false;
+let hasPermission: boolean = true;
+
+isLoggedIn = 1; // ❌ Lỗi: 1 không phải boolean
+```
+
+### `object`
+
+Có hai cách dùng. Cách đơn giản nhất là khai báo thẳng cấu trúc của object — gọi là _object type literal_:
+
+```typescript
+// Khai báo type inline
+let user: { name: string; age: number } = {
+  name: 'Alex',
+  age: 25,
+};
+
+user.name = 'Bình';  // ✅
+user.age = 'hai mươi'; // ❌ Lỗi: age phải là number
+user.email = 'a@b.com'; // ❌ Lỗi: email không có trong type
+```
+
+Nếu chỉ viết `object` chung chung, TypeScript biết đây là object nhưng không biết bên trong có gì — nên sẽ không gợi ý được gì hữu ích. Vì vậy nên **khai báo cấu trúc cụ thể** thay vì dùng `object` trơn.
+
+### `array`
+
+Có hai cách viết, cùng ý nghĩa:
+
+```typescript
+let scores: number[] = [9, 8, 10];       // cách phổ biến hơn
+let names: Array<string> = ['An', 'Bình']; // cách viết generic
+
+scores.push(7);    // ✅
+scores.push('A');  // ❌ Lỗi: 'A' không phải number
+```
+
+Nếu mảng chứa nhiều kiểu dữ liệu, có thể dùng union type:
+
+```typescript
+let mixed: (string | number)[] = ['hello', 1, 'world', 2];
+```
+
+### `any`
+
+Tắt hoàn toàn tính năng kiểm tra type — TypeScript sẽ không báo lỗi dù bạn làm gì với biến đó.
+
+```typescript
+let data: any = 'hello';
+data = 42;        // ✅ không lỗi
+data = true;      // ✅ không lỗi
+data.foo.bar();   // ✅ không lỗi — nhưng có thể vỡ lúc runtime
+```
+
+Dùng `any` khi đang migrate từ JS sang TS và chưa muốn type ngay. Nhưng nếu lạm dụng, TypeScript trở thành JavaScript — không còn ý nghĩa gì nữa.
+
+## \[Đặc biệt\] Type inference: TypeScript tự đoán type
+
+Bạn không phải lúc nào cũng cần khai báo type thủ công. TypeScript đủ thông minh để **tự suy luận** trong nhiều trường hợp:
+
+```typescript
+let message = 'Hello'; // TypeScript tự hiểu đây là string
+message = 123;         // ❌ Lỗi: không thể gán number vào string
+```
+
+Vì vậy, nguyên tắc thực tế là: **chỉ khai báo type khi TypeScript không tự suy ra được**, chẳng hạn ở tham số hàm.
+
+## \[Đặc biệt\] Type từ DOM: `as HTMLInputElement`
+
+Khi làm việc với DOM, một tình huống hay gặp là lấy giá trị từ một `<input>`:
+
+```typescript
+const num1El = document.getElementById('num1') as HTMLInputElement;
+const num1 = num1El.value; // type: string
+```
+
+Có hai điều đáng chú ý ở đây:
+
+`as HTMLInputElement` **là gì?** Đây gọi là _type casting_ (ép kiểu). `document.getElementById()` trả về `HTMLElement | null` — một kiểu rất chung, không biết đây là input, button hay div.
+
+Bằng cách thêm `as HTMLInputElement`, bạn nói với TypeScript: _“Tin tôi đi, phần tử này là một input.”_ Nhờ đó TypeScript mới biết `.value` là hợp lệ.
+
+`num1El.value` **có type là gì?** Là `string`. Dù user điền số vào ô input, `.value` luôn trả về chuỗi. Vì vậy nếu bạn cần tính toán, phải chuyển đổi:
+
+```typescript
+const num1 = parseFloat(num1El.value); // hoặc +num1El.value
+```
+
+Cái hay là TypeScript sẽ **bắt lỗi ngay lúc compile** nếu bạn quên chuyển:
+
+```typescript
+const num1El = document.getElementById('num1') as HTMLInputElement;
+const num1 = num1El.value; // type: string
+
+function add(a: number, b: number) {
+  return a + b;
+}
+
+add(num1, 5); // ❌ Lỗi: Argument of type 'string' is not assignable to parameter of type 'number'
+```
+
+Đây chính xác là lúc TypeScript phát huy tác dụng — nó nhắc bạn “ê, `num1` đang là string, hàm này cần number đó”. Bạn không cần nhớ phải chuyển, TypeScript nhớ thay.
+
+## Cấu hình TypeScript với `tsconfig.json`
+
+Chạy `tsc --init` để tạo file `tsconfig.json`. Đây là nơi điều chỉnh cách TypeScript hoạt động trong project. Một số field quan trọng:
+
+### `"strict": true`
+
+Bật tất cả các kiểm tra nghiêm ngặt. Khi bật, TypeScript sẽ không cho phép bạn gọi hàm trên một giá trị có thể là `null`. Ví dụ:
+
+```typescript
+const btn = document.getElementById('btn');
+btn.addEventListener('click', handler); // ❌ btn có thể null
+```
+
+Có hai cách xử lý:
+
+```typescript
+// Cách 1: kiểm tra null trước
+if (btn) {
+  btn.addEventListener('click', handler);
+}
+
+// Cách 2: dùng ! để khẳng định "phần tử này chắc chắn tồn tại"
+const btn = document.getElementById('btn')!;
+btn.addEventListener('click', handler); // ✅
+```
+
+Dùng `!` khi bạn **chắc chắn** phần tử đó có trong DOM. Nếu không chắc, dùng `if` check sẽ an toàn hơn.
+
+### Các field khác đáng chú ý
+
+```json
+{
+  "target": "ES2020",      // Compile TypeScript sang phiên bản JS nào
+  "module": "ESNext",      // Hệ thống module: CommonJS, ESNext, NodeNext...
+  "moduleResolution": "Bundler", // Cách resolve import — quan trọng với Vite/bundler
+  "lib": ["ES2020", "DOM"],      // TypeScript biết những API nào tồn tại
+  "outDir": "./dist",      // Thư mục chứa file JS sau khi compile
+  "rootDir": "./src",      // Thư mục chứa file TypeScript nguồn
+  "noEmit": true,          // Không tạo file JS (dùng khi bundler tự xử lý)
+  "skipLibCheck": true     // Bỏ qua kiểm tra type trong node_modules
+}
+```
+
+**Riêng với Cloudflare Workers**, cấu hình thường trông như sau:
+
+```json
+{
+  "target": "ES2022",
+  "module": "ESNext",
+  "moduleResolution": "Bundler",
+  "lib": ["ES2022"],       // Không có "DOM" — Workers không có browser API
+  "noEmit": true,
+  "skipLibCheck": true
+}
+```
+
+Lý do không có `"DOM"` trong `lib`: Cloudflare Workers chạy trên V8 isolates, không phải trình duyệt — nên không có `document`, `window`, `localStorage`… Nếu để `"DOM"`, TypeScript sẽ cho rằng các API đó tồn tại, dẫn đến lỗi lúc runtime.
+
+## Lợi ích của TypeScript
+
+Ngoài việc bắt lỗi type, TypeScript còn giúp:
+
+- **Tự động gợi ý (autocomplete)** chính xác hơn trong editor — biết object có những field nào, hàm nhận tham số gì
+- **Refactor an toàn hơn** — đổi tên một field, TypeScript sẽ chỉ ra tất cả những chỗ bị ảnh hưởng
+- **Code tự documenting** — đọc signature của hàm là biết nó nhận gì, trả về gì, không cần comment thêm
+
+### Không cần “full TypeScript” ngay từ đầu
+
+TypeScript hoàn toàn chấp nhận code JavaScript bình thường. Bạn có thể:
+
+- Bắt đầu bằng cách đổi đuôi file từ `.js` sang `.ts`
+- Chỉ thêm type ở những chỗ quan trọng nhất (tham số hàm, giá trị trả về)
+- Dần dần mở rộng khi cảm thấy thoải mái hơn
+
+Khi chuyển từ JS sang TS, nếu VS Code hay báo lỗi `type error`, dùng `// @ts-ignore` hoặc `// @ts-expect-error` thay vì `:any`:
+
+```typescript
+// @ts-ignore
+const result = someWeirdFunction(data); // TypeScript bỏ qua dòng này
+```
+
+Lý do nên dùng cái này thay vì `:any`:
+
+- `:any` lây lan — một biến `any` truyền vào hàm khác, hàm đó cũng mất type theo
+- `@ts-ignore` chỉ tắt kiểm tra đúng một dòng, phần còn lại vẫn được bảo vệ
+
+Nhưng thực ra cách phổ biến nhất khi migrate từ JS sang TS là đổi `tsconfig.json`:
+
+```json
+{
+  "strict": false  // tắt strict mode trước
+}
+```
+
+Hoặc thêm từng flag một thay vì bật `strict: true` hết luôn:
+
+```json
+{
+  "noImplicitAny": false,  // cho phép biến không khai báo type
+  "strictNullChecks": false // bỏ qua kiểm tra null/undefined
+}
+```
+
+Workflow thực tế nhiều người dùng là: tắt strict → code chạy được → từ từ bật lại từng flag → sửa lỗi từng phần. Không cần phải hoàn hảo ngay từ đầu.
+
+Không cần ép bản thân type mọi thứ ngay. Ngay cả `any` đôi khi vẫn có chỗ dùng — miễn là dùng có chủ đích, không phải vì lười.
+
+## Tóm tắt
+
+TypeScript giải quyết một nhược điểm lớn của JavaScript: không biết lỗi type cho đến khi chạy code. Bằng cách thêm type vào tham số hàm, biến và giá trị trả về, bạn bắt được lỗi sớm hơn, viết code rõ ràng hơn, và tự tin refactor hơn.
+
+Buổi đầu, những thứ cần nhớ:
+
+- Khai báo type cho tham số hàm là quan trọng nhất
+- TypeScript tự suy luận type trong nhiều trường hợp, không cần khai báo thừa
+- `as HTMLInputElement` để ép kiểu khi làm việc với DOM
+- `strict: true` trong tsconfig là nên bật, xử lý null bằng `if` hoặc `!`
+
+**Bước tiếp theo:** Type cho object và array, Union types (`string | number`), Interface và Type alias — những thứ giúp TypeScript thực sự tỏa sáng khi làm việc với data phức tạp. Mời các bạn đọc tiếp [Phần 2](/typescript/the-basics-2).
