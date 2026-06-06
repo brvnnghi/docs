@@ -1,0 +1,239 @@
+---
+title: "useRouter trong Next.js: Từ đóng modal đến prefetch"
+sidebarTitle: "Điều hướng useRouter"
+description: "Trong bài viết này, chúng ta sẽ đi từ use-case thực tế nhất (đóng modal), mở rộng ra các method hay dùng, rồi kết thúc ở router.prefetch(), tính năng giúp trải nghiệm người dùng mượt hơn hẳn mà ít ai để ý."
+---
+
+Bạn đang xây dựng một trang gallery ảnh. Khi người dùng click vào một bức ảnh, một modal hiện ra — URL trên thanh địa chỉ cũng đổi theo, nhưng trang nền phía sau vẫn còn đó. Người dùng nhấn `Escape` hoặc click nút `✕`, modal đóng lại, URL về trạng thái cũ, mọi thứ mượt mà.
+
+Đây là pattern **Intercepting Route** — một trong những tính năng nâng cao của Next.js App Router. Và hook đứng sau hầu hết những thao tác điều hướng kiểu này là `useRouter` từ `next/navigation`.
+
+## `useRouter` là gì?
+
+`useRouter` là một hook của Next.js App Router, cho phép bạn **điều hướng bằng code** (programmatic navigation) thay vì chỉ dùng `<Link>`.
+
+```tsx
+'use client'
+
+import { useRouter } from 'next/navigation'
+
+export default function MyComponent() {
+  const router = useRouter()
+  // ...
+}
+```
+
+> ⚠️ Chú ý: `useRouter` từ `next/navigation` khác với `useRouter` từ `next/router` (của Pages Router cũ). Nếu đang dùng App Router, luôn import từ `next/navigation`.
+
+Vì là hook, nó chỉ dùng được trong **Client Component** — nên đừng quên `'use client'` ở đầu file.
+
+## 1. `router.back()` — Đóng modal với Intercepting Route
+
+### Intercepting Route hoạt động như thế nào?
+
+Intercepting Route cho phép bạn “chặn” một route và hiển thị nội dung của nó trong ngữ cảnh hiện tại (thường là modal), thay vì điều hướng hẳn sang trang mới.
+
+Cấu trúc thư mục trông như thế này:
+
+```text
+app/
+├── gallery/
+│   ├── page.tsx              ← trang gallery chính
+│   └── [id]/
+│       └── page.tsx          ← trang ảnh full (khi truy cập trực tiếp)
+│
+└── @modal/
+    └── (.)gallery/
+        └── [id]/
+            └── page.tsx      ← modal (khi click từ gallery)
+```
+
+Quy ước `(.)` nghĩa là “intercept route cùng cấp”. Next.js sẽ hiển thị `@modal/` khi người dùng _navigate_ đến `/gallery/[id]` từ trong app, nhưng vẫn render trang đầy đủ khi truy cập URL đó trực tiếp — đây gọi là **progressive enhancement**.
+
+### Đóng modal bằng `back()`
+
+Khi người dùng mở modal, trình duyệt đã đẩy một entry mới vào history stack. Gọi `back()` sẽ quay về entry trước đó — tức là đóng modal và khôi phục URL.
+
+```tsx
+'use client'
+
+import { useRouter } from 'next/navigation'
+
+export default function PhotoModal({ src }: { src: string }) {
+  const router = useRouter()
+
+  return (
+    <div className="modal-overlay" onClick={() => router.back()}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <button onClick={() => router.back()}>✕ Đóng</button>
+        <img src={src} alt="Photo" />
+      </div>
+    </div>
+  )
+}
+```
+
+Đây là pattern chuẩn, gọn, và không cần quản lý state `isOpen` nào cả — URL chính là “source of truth”.
+
+## 2. `router.push()` và `router.replace()` — Điều hướng có kiểm soát
+
+### `push()` — Thêm vào history
+
+```tsx
+router.push('/dashboard')
+router.push(`/gallery/${photoId}`)
+```
+
+`push()` hoạt động giống `<Link>` — thêm một entry mới vào history. Người dùng có thể nhấn nút Back của trình duyệt để quay lại.
+
+Dùng khi: sau khi đăng nhập thành công, sau khi submit form, khi muốn người dùng có thể back về.
+
+### `replace()` — Thay thế entry hiện tại
+
+```tsx
+router.replace('/login') // không tạo entry mới trong history
+```
+
+`replace()` thay thế entry hiện tại trong history, không tạo thêm mới. Người dùng **không thể** back về trang vừa rời đi.
+
+Dùng khi: redirect sau đăng xuất, trang trung gian (loading/callback), hoặc khi bạn **không muốn** người dùng quay lại trang cũ bằng nút Back.
+
+```tsx
+// Sau khi logout
+async function handleLogout() {
+  await signOut()
+  router.replace('/login') // không thể back về dashboard sau khi logout
+}
+```
+
+## 3. `router.refresh()` — Làm mới dữ liệu mà không reload trang
+
+```tsx
+router.refresh()
+```
+
+`refresh()` yêu cầu Next.js **fetch lại dữ liệu từ server** cho route hiện tại và cập nhật các Server Component — mà không reload toàn bộ trang, không mất state của Client Component.
+
+Đây là cách “sync lại” UI sau khi thực hiện một Server Action.
+
+```tsx
+'use client'
+
+import { useRouter } from 'next/navigation'
+import { likePost } from '@/actions/post'
+
+export function LikeButton({ postId }: { postId: string }) {
+  const router = useRouter()
+
+  async function handleLike() {
+    await likePost(postId)
+    router.refresh() // cập nhật lại số lượt like từ server
+  }
+
+  return <button onClick={handleLike}>❤️ Thích</button>
+}
+```
+
+> Lưu ý: nếu bạn đang dùng `useOptimistic` trong cùng component, `refresh()` sẽ trigger re-fetch và đồng bộ lại giá trị thật từ server sau khi optimistic update đã hiển thị.
+
+## 4. `router.prefetch()` — Tải trước route để điều hướng nhanh hơn
+
+### Vấn đề
+
+Khi người dùng click vào một link, Next.js mới bắt đầu tải bundle JavaScript và dữ liệu của trang đó. Với kết nối chậm, có thể cảm nhận được độ trễ này.
+
+### Giải pháp: prefetch
+
+`router.prefetch(url)` tải trước code và dữ liệu của một route **ngay cả khi người dùng chưa click** — thường là khi họ hover vào một phần tử, hoặc khi component mount.
+
+```tsx
+'use client'
+
+import { useRouter } from 'next/navigation'
+
+export function ProductCard({ id, name }: { id: string; name: string }) {
+  const router = useRouter()
+
+  return (
+    <div
+      onMouseEnter={() => router.prefetch(`/products/${id}`)}
+      onClick={() => router.push(`/products/${id}`)}
+      className="product-card"
+    >
+      {name}
+    </div>
+  )
+}
+```
+
+Khi người dùng hover vào card, Next.js bắt đầu tải trước trang sản phẩm. Đến khi họ thực sự click, trang đã sẵn sàng — cảm giác gần như tức thì.
+
+### So sánh với `<Link>`
+
+`<Link>` từ `next/link` **tự động prefetch** các route xuất hiện trong viewport (trong production). Vậy khi nào cần `router.prefetch()` thủ công?
+
+- Khi bạn dùng `<button>`, `<div>`, hoặc bất kỳ element nào không phải `<Link>`
+- Khi muốn prefetch dựa trên logic phức tạp hơn (ví dụ: prefetch trang tiếp theo trong một slideshow)
+- Khi muốn prefetch ngay khi component mount, không cần đợi scroll vào viewport
+
+```tsx
+// Prefetch trang tiếp theo khi đang ở bước 2/5 của một wizard
+useEffect(() => {
+  router.prefetch('/checkout/step-3')
+}, [])
+```
+
+## Bẫy thường gặp: `back()` trong modal nhiều ảnh
+
+Quay lại bài toán gallery. Giả sử trong modal, người dùng có thể **bấm Next/Prev để xem ảnh tiếp theo**, và mỗi lần chuyển ảnh thì URL thay đổi theo (ví dụ từ `/gallery/1` sang `/gallery/2`).
+
+Nếu bạn dùng `router.push()` để chuyển ảnh:
+
+```text
+history stack: /gallery → /gallery/1 → /gallery/2 → /gallery/3
+```
+
+Lúc này gọi `router.back()` sẽ về `/gallery/2`, không phải về `/gallery` — modal vẫn còn mở, chỉ là hiển thị ảnh trước. Người dùng phải back nhiều lần mới thoát được modal.
+
+**Giải pháp:** dùng `router.replace()` khi navigate giữa các ảnh trong modal.
+
+```tsx
+'use client'
+
+import { useRouter } from 'next/navigation'
+
+export function PhotoModal({ currentId }: { currentId: string }) {
+  const router = useRouter()
+
+  function goToPhoto(id: string) {
+    // replace thay vì push — không tạo thêm entry mới
+    router.replace(`/gallery/${id}`)
+  }
+
+  return (
+    <div>
+      <button onClick={() => router.back()}>✕ Đóng</button>
+      <button onClick={() => goToPhoto(prevId)}>← Trước</button>
+      <button onClick={() => goToPhoto(nextId)}>→ Tiếp</button>
+    </div>
+  )
+}
+```
+
+Với `replace()`, history stack chỉ có một entry cho modal dù người dùng đã xem bao nhiêu ảnh — và `back()` luôn đưa họ về trang gallery một cách chính xác.
+
+Nguyên tắc: `**push()**` **khi muốn người dùng có thể back lại,** `**replace()**` **khi chỉ muốn cập nhật URL mà không tạo checkpoint mới.**
+
+## Tóm tắt
+
+| Method | Tác dụng | Khi nào dùng |
+| :-- | :-- | :-- |
+| `back()` | Quay lại trang trước trong history | Đóng modal, cancel flow |
+| `push(url)` | Điều hướng, thêm vào history | Sau submit form, click link động |
+| `replace(url)` | Điều hướng, thay thế history hiện tại | Redirect auth, navigate trong modal |
+| `refresh()` | Re-fetch dữ liệu server, giữ client state | Sau Server Action, cần sync data |
+| `prefetch(url)` | Tải trước route | Hover, slideshow, multi-step flow |
+
+`useRouter` là công cụ điều hướng “có não” — dùng đúng method đúng chỗ sẽ giúp UX mượt hơn nhiều so với chỉ dùng `<Link>` ở khắp nơi.
+
+Bước tiếp theo nếu bạn muốn đào sâu hơn về routing trong Next.js App Router: **Parallel Routes** (hiển thị nhiều page slot song song), **Route Groups** (tổ chức route mà không ảnh hưởng URL), và **Middleware** (xử lý redirect/auth ở tầng edge trước khi render).

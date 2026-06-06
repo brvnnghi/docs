@@ -1,0 +1,369 @@
+---
+title: "Optimistic UI: Phản hồi trước, lưu sau, lỗi thì hoàn lại trạng thái cũ với trong React"
+sidebarTitle: "Optimistic UI"
+description: 'Một tính năng đúng nghĩa là "nâng cao", khó làm, chỉ giải quyết được một chút trải nghiệm ở tầng giao diện người dùng, chỉ để cải thiện được mức độ tự nhiên khi tương tác.'
+---
+
+Bạn đã bao giờ click "Like" trên Facebook và thấy con số tăng lên ngay lập tức, dù bạn biết rằng request vẫn đang trên đường đến server? Đó chính là **Optimistic UI**, một kỹ thuật cải thiện trải nghiệm người dùng bằng cách cập nhật giao diện ngay lập tức, thay vì đợi server phản hồi xong mới render lại.
+
+Trong bài viết này, chúng ta sẽ xây dựng một nút React (cảm xúc) cho bài viết blog, người dùng chọn mood, UI cập nhật ngay, rồi mới sync với server ở phía sau.
+
+Giả định chúng ta có một nút "React" với 6 trạng thái như sau:
+
+```tsx
+// mảng moods chứa các reaction
+const moods = [
+  { name: '10 điểm', value: 'excited', icon: FireIcon, iconColor: 'text-white', bgColor: 'bg-red-500' },
+  { name: 'Mãi iu', value: 'loved', icon: HeartIcon, iconColor: 'text-white', bgColor: 'bg-pink-400' },
+  { name: 'Cũng cũng', value: 'happy', icon: FaceSmileIcon, iconColor: 'text-white', bgColor: 'bg-green-400' },
+  { name: 'Ê nha', value: 'sad', icon: FaceFrownIcon, iconColor: 'text-white', bgColor: 'bg-yellow-400' },
+  { name: 'Tui thích', value: 'like', icon: HandThumbUpIcon, iconColor: 'text-white', bgColor: 'bg-blue-500' },
+  {
+    name: 'Không có gì',
+    value: null,
+    icon: XMarkIcon,
+    iconColor: 'text-gray-400 dark:text-gray-500',
+    bgColor: 'bg-transparent',
+  },
+]
+type MoodOption = (typeof moods)[number]
+
+// Tìm mood object trong mảng moods theo value,
+// fallback về option "Không có gì" nếu không tìm thấy
+function getMoodOption(mood: MoodSelection): MoodOption {
+  return moods.find((item) => item.value === mood) || moods[5]
+}
+```
+
+---
+
+## Vấn đề với cách làm thông thường
+
+Cách đơn giản nhất để implement tính năng này là: gọi Server Action, đợi response, rồi mới cập nhật UI.
+
+```tsx highlight={34,36-37}
+export default function ReactButton({
+  postId,       // để gọi server action
+  mood,         // mood hiện tại của người dùng (null nếu chưa react)
+  reactionCount,// tổng số reaction của bài viết
+}: {
+  postId: string
+  mood: MoodSelection
+  reactionCount: number
+}) {
+  // Mỗi thứ cần hiển thị = một useState riêng
+  const [selected, setSelected] = useState(() => getMoodOption(mood))
+  const [count, setCount] = useState(reactionCount)
+
+  const handleMoodChange = async (nextSelectedOption: MoodOption) => {
+	// Lưu lại previous để có thể xử lý lỗi sau này
+    const previousMood = selected.value
+
+    // Gọi server, đợi response...
+    const updatedMood = await reactMood(postId, nextSelectedOption.value)
+
+    // Nhận response xong mới cập nhật UI
+    if ('mood' in updatedMood) {
+      setSelected(getMoodOption(updatedMood.mood))
+
+      if (previousMood === null && updatedMood.mood !== null) {
+        setCount((current) => current + 1)
+      } else if (previousMood !== null && updatedMood.mood === null) {
+        setCount((current) => Math.max(0, current - 1))
+      }
+    }
+  }
+
+  return (
+    <div>
+      <Listbox value={selected} onChange={handleMoodChange}>
+        <ListboxButton>
+          <selected.icon />
+          <span>{selected.name}</span>
+        </ListboxButton>
+
+        <ListboxOptions>
+          {moods.map((mood) => (
+            <ListboxOption key={mood.value ?? 'none'} value={mood}>
+              {mood.name}
+            </ListboxOption>
+          ))}
+        </ListboxOptions>
+      </Listbox>
+
+      <span>{count}</span>
+    </div>
+  )
+}
+```
+
+Cách này hoạt động đúng, nhưng có một vấn đề rõ ràng: trong khoảng thời gian chờ server (có thể 200–500ms, thậm chí hơn), **UI không có phản ứng gì**. Người dùng click xong, nhìn vào màn hình, không biết có chuyện gì đang xảy ra. 
+
+Trải nghiệm này đặc biệt tệ trên kết nối chậm.
+
+---
+
+## `useOptimistic` là gì?
+
+`useOptimistic` là một hook được React giới thiệu từ phiên bản 19, cho phép bạn **hiển thị một giá trị tạm thời ngay lập tức**, trong khi async operation vẫn đang chạy ở background. Khi operation hoàn thành (thành công hoặc thất bại), React tự động đồng bộ lại với giá trị thực.
+
+Hook này được cấu hình như sau:
+
+```tsx
+const [optimisticValue, addOptimistic] = useOptimistic(
+  realValue,        // Giá trị thực, được xác nhận bởi server
+  (current, next) => computeNextState(current, next)  // Hàm tính giá trị tạm thời
+)
+```
+
+Điểm quan trọng cần nhớ:
+
+- `optimisticValue` là giá trị **bạn hiển thị lên UI** — có thể là giá trị tạm thời, hoặc giá trị thực nếu không có operation nào đang chạy.
+- `addOptimistic(next)` kích hoạt cập nhật UI ngay lập tức với giá trị tạm thời.
+- Nếu server **thất bại**, React tự động rollback `optimisticValue` về `realValue`. Bạn không cần tự xử lý rollback.
+- Nếu server **thành công**, bạn cần tự cập nhật `realValue` để "confirm" kết quả.
+
+`useOptimistic` **phải chạy bên trong** `useTransition` (hoặc một Server Action). Đây là yêu cầu bắt buộc — hook này được thiết kế để hoạt động trong React's transition system.
+
+---
+
+## Refactor từng bước
+
+### Bước 1 — Tách "giá trị đã xác nhận" ra khỏi render state
+
+Trước đây, `useState` vừa là nơi lưu giá trị server trả về, vừa là nguồn dữ liệu để render. Bây giờ chúng ta cần tách chúng ra:
+
+```tsx
+// Giá trị đã được server xác nhận lần cuối
+const [savedReaction, setSavedReaction] = useState(() => ({
+  mood,
+  reactionCount,
+}))
+
+// Lỗi từ server (nếu có) để hiển thị cho người dùng
+const [actionError, setActionError] = useState<string | null>(null)
+```
+
+`savedReaction` đóng vai trò là **source of truth từ server**. Chúng ta chỉ cập nhật nó khi server xác nhận thành công.
+
+### Bước 2 — Khai báo `useOptimistic`
+
+```tsx
+const [optimisticReaction, addOptimisticReaction] = useOptimistic(
+  savedReaction,					// reaction hiện tại
+  (currentReaction, nextMood: MoodSelection) => ({
+    mood: nextMood,					// reaction tạm thời (chính là reaction vừa click)
+    reactionCount: getNextReactionCount(
+      currentReaction.mood,			// reaction hiện tại
+      nextMood,						// reaction vừa click
+      currentReaction.reactionCount,// reaction count
+    ),
+  }),
+)
+```
+
+Hàm thứ hai (`reducer`) nhận vào `currentReaction` (giá trị hiện tại) và `nextMood` (giá trị bạn muốn thay đổi thành), rồi tính toán và trả về state tạm thời. Ở đây, helper `getNextReactionCount` xử lý logic tăng/giảm count:
+
+```tsx
+function getNextReactionCount(
+  currentMood: MoodSelection,
+  nextMood: MoodSelection,
+  currentCount: number,
+) {
+  // chỉ tăng count nếu từ null sang react, hoặc gỡ bỏ react thành null
+  if (currentMood === null && nextMood !== null) return currentCount + 1
+  if (currentMood !== null && nextMood === null) return Math.max(0, currentCount - 1)
+  return currentCount  // Đổi mood sang mood khác: count không đổi
+}
+```
+
+### Bước 3 — Sử dụng `addOptimisticReaction` với `useTransition`
+
+Sử dụng `[optimisticReaction, addOptimisticReaction]` được trả ra từ hook `useOptimistic` để cập nhật lại handler. 
+
+Các hàm của `useOptimistic` yêu cầu chạy trong một transition. Thêm `useTransition` và bọc toàn bộ async logic:
+
+```tsx highlight={1,10}
+const [isPending, startTransition] = useTransition()
+
+const handleMoodChange = async (nextSelectedOption: MoodOption) => {
+  const nextMood = nextSelectedOption.value as MoodSelection
+
+  setActionError(null)
+
+  startTransition(async () => {
+    // 1. Cập nhật UI ngay lập tức
+    addOptimisticReaction(nextMood)
+
+    // 2. Gọi server ở background
+    const updatedMood = await reactMood(postId, nextMood)
+
+    if ('error' in updatedMood) {
+      // Server thất bại → useOptimistic tự rollback về savedReaction
+	  // thông điệp báo lỗi sẽ hiển thị bên cạnh nút reaction
+      setActionError(updatedMood.error)
+      return
+    }
+
+    // 3. Server thành công → cập nhật savedReaction để "confirm"
+	// "currentReaction" chỉ đơn giản là "prevState", không liên quan gì đến useOptimistic
+    setSavedReaction((currentReaction) => ({
+      mood: updatedMood.mood,
+      reactionCount: getNextReactionCount(
+        currentReaction.mood,
+        updatedMood.mood,
+        currentReaction.reactionCount,
+      ),
+    }))
+  })
+}
+```
+
+Lưu ý rằng khi server thất bại, chúng ta **không cần làm gì với** `optimisticReaction`. Khi transition kết thúc mà không có lời gọi `setSavedReaction`, React tự động trả `optimisticReaction` về giá trị của `savedReaction`. Đó là toàn bộ cơ chế rollback.
+
+### Bước 4 — Render từ `optimisticReaction` để cập nhật UI "lạc quan"
+
+Chỗ này bạn cần hiểu là`optimisticReaction` là giá trị trả về từ hàm reducer `(currentReaction, nextMood: MoodSelection)` bên trong `useOptimistic` hook, cụ thể hơn:
+
+- **Khi không có transition nào đang chạy:** `optimisticReaction === savedReaction`, nghĩa React trả thẳng giá trị gốc, hàm reducer không được gọi.
+- **Khi đang trong transition (sau khi** `addOptimisticReaction(nextMood) `**được gọi):** React gọi hàm reducer với `(savedReaction, nextMood)`, và kết quả trả về chính là `optimisticReaction` lúc đó.
+
+Nên có thể hiểu hàm reducer đó là: _"nếu tôi cần hiển thị UI tạm thời, hãy tính nó như thế này"_. Còn `optimisticReaction` là React tự quyết định trả về cái gì tùy theo trạng thái hiện tại — giá trị gốc hoặc giá trị tạm thời.
+
+Rồi, giờ xem lại phần render của cách làm thông thường — state đến thẳng từ `useState`, button không có trạng thái chờ:
+
+```tsx highlight={5-6,18}
+return (
+    <div>
+      <Listbox value={selected} onChange={handleMoodChange}>
+        <ListboxButton>
+          <selected.icon />
+          <span>{selected.name}</span>
+        </ListboxButton>
+
+        <ListboxOptions>
+          {moods.map((mood) => (
+            <ListboxOption key={mood.value ?? 'none'} value={mood}>
+              {mood.name}
+            </ListboxOption>
+          ))}
+        </ListboxOptions>
+      </Listbox>
+
+      <span>{count}</span>
+    </div>
+  )
+}
+```
+
+Với optimistic UI, chỉ có 3 điểm khác biệt: nguồn dữ liệu render lấy từ `optimisticReaction` thay vì trực tiếp từ `useState`, button có thêm `disabled={isPending}` (do `useTransition` trả ra) để tránh double-click, và có thêm một chỗ hiển thị lỗi nếu server thất bại:
+
+```tsx highlight={2-3,9-11,23,26}
+// Lấy giá trị hiển thị từ optimisticReaction thay vì useState trực tiếp
+const selected = getMoodOption(optimisticReaction.mood)
+const count = optimisticReaction.reactionCount
+
+return (
+    <div>
+      <Listbox value={selected} onChange={handleMoodChange}>
+        {/* disabled khi đang chờ server, tránh click nhiều lần */}
+        <ListboxButton disabled={isPending}>
+          <selected.icon />
+          <span>{selected.name}</span>
+        </ListboxButton>
+
+        <ListboxOptions>
+          {moods.map((mood) => (
+            <ListboxOption key={mood.value ?? 'none'} value={mood}>
+              {mood.name}
+            </ListboxOption>
+          ))}
+        </ListboxOptions>
+      </Listbox>
+
+      <span>{count}</span>
+
+      {/* Hiển thị lỗi nếu server thất bại (UI đã rollback tự động lúc này) */}
+      {actionError ? <span>{actionError}</span> : null}
+    </div>
+  )
+}
+```
+
+---
+
+## Kết quả: timeline của một lần click
+
+| Thời điểm | Điều xảy ra |
+| :-- | :-- |
+| Click | `addOptimisticReaction(nextMood)` → UI cập nhật ngay |
+| ~0ms | `optimisticReaction` phản chiếu mood mới, count mới |
+| ~200ms | Server xử lý xong, trả về kết quả |
+| Thành công | `setSavedReaction(...)` → `optimisticReaction` đồng bộ với server |
+| Thất bại | Transition kết thúc → `optimisticReaction` tự rollback về `savedReaction` |
+
+---
+
+## Một vài lưu ý thực tế
+
+**Về** `useTransition `**bắt buộc:** Nếu bạn gọi `addOptimisticReaction` bên ngoài `startTransition`, React sẽ báo lỗi ở development mode. Đây là thiết kế có chủ ý — `useOptimistic` chỉ có nghĩa khi có một async transition đang diễn ra để nó "che" đi.
+
+**Về** `isPending`**:** `isPending` là `true` trong suốt thời gian transition, bao gồm cả sau khi optimistic update đã hiển thị. Dùng nó để disable input, hiện loading indicator nhỏ, hoặc giảm opacity — nhưng không nên dùng để ẩn nội dung đã optimistic, vì như vậy sẽ phá vỡ mục đích ban đầu.
+
+**Về rollback:** Rollback tự động hoạt động tốt cho các thao tác đơn giản. Nếu UI phức tạp hơn (ví dụ: optimistic insert một item vào list), bạn cần đảm bảo `savedReaction` (giá trị gốc) không bao gồm item chưa được xác nhận — nếu không, rollback sẽ không về đúng trạng thái cũ.
+
+Giả sử bạn có một comment list, và người dùng submit một comment mới.
+
+**Làm sai — thêm comment vào** `savedList `**trước:**
+
+```tsx
+const handleSubmit = async (text: string) => {
+  const tempComment = { id: 'temp', text }
+
+  // ❌ Thêm vào saved state trước khi server xác nhận
+  setSavedList(prev => [...prev, tempComment])
+  addOptimistic(tempComment)
+
+  const result = await submitComment(text)
+
+  if ('error' in result) {
+    setError(result.error)
+    return  // transition kết thúc, useOptimistic rollback về... savedList
+            // nhưng savedList đã có tempComment rồi → không rollback được
+  }
+}
+```
+
+**Làm đúng — chỉ cập nhật** `savedList `**khi server xác nhận:**
+
+```tsx
+const handleSubmit = async (text: string) => {
+  const tempComment = { id: 'temp', text }
+
+  // ✅ savedList không bị động, chỉ optimistic state thay đổi
+  addOptimistic(tempComment)
+
+  const result = await submitComment(text)
+
+  if ('error' in result) {
+    setError(result.error)
+    return  // transition kết thúc, useOptimistic rollback về savedList
+            // savedList vẫn sạch → rollback đúng, tempComment biến mất
+  }
+
+  // Server thành công → mới cập nhật savedList
+  setSavedList(prev => [...prev, result.comment])
+}
+```
+
+Tóm lại: `savedList` là "bức ảnh đã được server xác nhận", `useOptimistic` chỉ layer lên trên nó. Nếu bạn làm bẩn `savedList` trước khi server confirm thì rollback không còn chỗ sạch để về nữa. Nhưng chắc bạn sẽ không "ngốc" vậy đâu nhỉ, ahihi...
+
+---
+
+## Tóm lại
+
+`useOptimistic` giải quyết một vấn đề UX rất cụ thể: khoảng trống giữa lúc người dùng tương tác và lúc server phản hồi. Bằng cách hiển thị giá trị tạm thời ngay lập tức và tự rollback khi có lỗi, hook này giúp UI cảm giác nhanh và responsive mà không cần bạn tự quản lý state rollback phức tạp.
+
+Pattern cốt lõi gồm 3 phần: `useState` giữ giá trị đã xác nhận, `useOptimistic` tạo giá trị hiển thị tạm thời, và `useTransition` bọc toàn bộ async flow lại.
+
+Nếu bạn muốn tìm hiểu thêm, một số chủ đề liên quan đáng đọc tiếp là `useActionState` (kết hợp form action với optimistic update), `revalidatePath` / `revalidateTag` trong Next.js (để đồng bộ cache sau khi mutation), và Suspense boundaries (để kiểm soát loading state ở cấp độ cao hơn).

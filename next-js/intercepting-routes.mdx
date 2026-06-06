@@ -1,0 +1,356 @@
+---
+title: "Thực hành Intercepting Routes trong Next.js  qua ví dụ Photo Gallery"
+sidebarTitle: "Intercepting Routes"
+description: "Đây là pattern shareable modal, và đây chính xác là thứ Intercepting Routes được sinh ra để giải quyết."
+---
+
+Bạn đang xem một feed ảnh trên Instagram.
+
+- Click vào một ảnh — một modal xuất hiện, URL đổi thành `/photo/123`, bạn có thể copy link đó gửi cho bạn bè.
+- Người nhận mở link → thấy trang ảnh đầy đủ, không phải modal.
+- Nhấn Back → quay lại feed, không phải trang trắng.
+
+Đây là pattern **shareable modal**, và đây chính xác là thứ Intercepting Routes được sinh ra để giải quyết. Trước khi có tính năng này, bạn phải tự quản lý URL state, history API, scroll position bằng JavaScript thuần, rất dễ bug.
+
+Các bạn có thể xem demo tính năng này trong trang [Marketer Việt Nam](https://www.marketervietnam.vn/), nhấp vào một bài đăng bộ ảnh bất kỳ.
+
+## Vấn đề Intercepting Routes giải quyết
+
+Với routing thông thường, bạn chỉ có hai lựa chọn:
+
+- **Modal không có URL** — không thể share link, F5 là mất, SEO không có
+- **Chuyển trang hoàn toàn** — mất context trang cũ, trải nghiệm bị ngắt quãng
+
+Intercepting Routes cho phép bạn có **cả hai cùng lúc**:
+
+| Tình huống | Hiển thị |
+| :-- | :-- |
+| Click từ feed → `/photo/123` | Modal overlay trên feed |
+| Paste URL `/photo/123` vào tab mới | Trang ảnh đầy đủ |
+| F5 khi đang mở modal | Trang ảnh đầy đủ |
+| Nhấn Back | Quay lại feed, modal đóng |
+
+## Cú pháp Intercepting Routes
+
+Intercepting Routes dùng ký hiệu tương tự relative path, nhưng dựa trên **route segment** chứ không phải file system:
+
+| Ký hiệu | Ý nghĩa |
+| :-- | :-- |
+| `(.)folder` | Intercept segment **cùng cấp** |
+| `(..)folder` | Intercept segment **một cấp trên** |
+| `(..)(..)folder` | Intercept segment **hai cấp trên** |
+| `(...)folder` | Intercept từ **root** `/app` |
+
+> **Lưu ý quan trọng:** `@slot` không tính là route segment vì nó không ảnh hưởng URL. Nên khi tính “cấp”, bạn chỉ đếm các thư mục thực sự tạo ra URL segment.
+
+## Xây dựng Photo Gallery step-by-step
+
+### Mục tiêu
+
+```text
+/              → Trang feed ảnh
+/photo/[id]    → Trang ảnh đầy đủ (khi truy cập trực tiếp)
+               → Modal overlay trên feed (khi click từ feed)
+```
+
+### Bước 1: Cấu trúc thư mục
+
+```text
+/app
+├── @modal
+│   ├── (..)photo
+│   │   └── [id]
+│   │       └── page.tsx    ← intercepted page (hiển thị modal)
+│   └── default.tsx         ← trả về null khi không có modal
+├── photo
+│   └── [id]
+│       └── page.tsx        ← full page (khi hard navigate)
+├── layout.tsx
+└── page.tsx                ← feed ảnh
+```
+
+**Tại sao dùng** `**(..)photo**` **mà không phải** `**(.)photo**`**?**
+
+Slot `@modal` nằm trong `app/`, cùng cấp với `photo/`. Nhưng vì `@modal` không tạo URL segment, khi tính cấp để intercept `/photo/[id]`, ta đang đứng ở `app/` nhìn vào `app/photo/` — tức là **một cấp dưới** → dùng `(..)`.
+
+### Bước 2: Layout nhận slot `@modal`
+
+```tsx app/layout.tsx
+export default function RootLayout({
+  children,
+  modal,
+}: {
+  children: React.ReactNode
+  modal: React.ReactNode
+}) {
+  return (
+    <html lang="en">
+      <body>
+        {children}
+        {modal}  {/* modal render ở đây, chồng lên feed */}
+      </body>
+    </html>
+  )
+}
+```
+
+### Bước 3: `default.tsx` — không render gì khi không có modal
+
+```tsx app/@modal/default.tsx
+export default function ModalDefault() {
+  return null
+}
+```
+
+Khi người dùng ở trang feed `/` mà chưa click ảnh nào, slot `@modal` cần render _gì đó_ — `null` là câu trả lời đúng.
+
+### Bước 4: Feed ảnh — trang chính
+
+```tsx app/page.tsx
+import Link from 'next/link'
+
+const photos = [
+  { id: '1', src: 'https://picsum.photos/seed/1/400/300', title: 'Ảnh 1' },
+  { id: '2', src: 'https://picsum.photos/seed/2/400/300', title: 'Ảnh 2' },
+  { id: '3', src: 'https://picsum.photos/seed/3/400/300', title: 'Ảnh 3' },
+]
+
+export default function FeedPage() {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+      {photos.map((photo) => (
+        <Link key={photo.id} href={`/photo/${photo.id}`}>
+          <img src={photo.src} alt={photo.title} style={{ width: '100%' }} />
+        </Link>
+      ))}
+    </div>
+  )
+}
+```
+
+Không có gì đặc biệt ở đây — chỉ là `<Link>` bình thường trỏ đến `/photo/[id]`.
+
+### Bước 5: Trang ảnh đầy đủ — cho hard navigation
+
+```tsx app/photo/[id]/page.tsx
+const photos = [
+  { id: '1', src: 'https://picsum.photos/seed/1/800/600', title: 'Ảnh 1' },
+  { id: '2', src: 'https://picsum.photos/seed/2/800/600', title: 'Ảnh 2' },
+  { id: '3', src: 'https://picsum.photos/seed/3/800/600', title: 'Ảnh 3' },
+]
+
+export default function PhotoPage({ params }: { params: { id: string } }) {
+  const photo = photos.find((p) => p.id === params.id)
+  if (!photo) notFound()
+
+  return (
+    <div>
+      <h1>{photo.title}</h1>
+      <img src={photo.src} alt={photo.title} style={{ maxWidth: '100%' }} />
+    </div>
+  )
+}
+```
+
+### Bước 6: Modal — intercepted page
+
+```tsx app/@modal/(..)photo/[id]/page.tsx
+'use client'
+
+import { useRouter } from 'next/navigation'
+
+const photos = [
+  { id: '1', src: 'https://picsum.photos/seed/1/800/600', title: 'Ảnh 1' },
+  { id: '2', src: 'https://picsum.photos/seed/2/800/600', title: 'Ảnh 2' },
+  { id: '3', src: 'https://picsum.photos/seed/3/800/600', title: 'Ảnh 3' },
+]
+
+export default function PhotoModal({ params }: { params: { id: string } }) {
+  const router = useRouter()
+  const photo = photos.find((p) => p.id === params.id)
+  if (!photo) return null
+
+  return (
+    // Overlay backdrop
+    <div
+      onClick={() => router.back()}
+      style={{
+        position: 'fixed', inset: 0,
+        background: 'rgba(0,0,0,0.7)',
+        display: 'grid', placeItems: 'center',
+        zIndex: 50,
+      }}
+    >
+      {/* Modal content — click không đóng modal */}
+      <div onClick={(e) => e.stopPropagation()} style={{ background: 'white', padding: 24, borderRadius: 8 }}>
+        <h2>{photo.title}</h2>
+        <img src={photo.src} alt={photo.title} style={{ maxWidth: '80vw' }} />
+        <button onClick={() => router.back()}>Đóng</button>
+      </div>
+    </div>
+  )
+}
+```
+
+`router.back()` đóng modal bằng cách quay lại trang trước trong history — đúng hành vi người dùng kỳ vọng.
+
+## Luồng hoạt động — tổng kết
+
+```text
+Người dùng ở /feed, click ảnh id=1
+    ↓
+Next.js soft navigate → /photo/1
+    ↓
+Next.js phát hiện: đang trong feed, có intercepting route (..)photo/[id]
+    ↓
+@modal slot → render PhotoModal  (URL hiển thị: /photo/1)
+children     → vẫn render FeedPage bên dưới
+    ↓
+Người dùng copy URL /photo/1, mở tab mới (hard navigate)
+    ↓
+Không có context để intercept
+    ↓
+@modal slot → render default.tsx (null)
+children     → render PhotoPage đầy đủ
+```
+
+## Ứng dụng thực tế trong production
+
+Intercepting Routes \+ Parallel Routes không chỉ dùng cho gallery ảnh. Dưới đây là các pattern phổ biến trong production:
+
+### 1. Login modal với fallback page
+
+Nút “Đăng nhập” ở navbar mở modal, nhưng `/login` vẫn là trang độc lập cho người dùng không có JavaScript hoặc truy cập trực tiếp. Pattern này giúp **progressive enhancement** — app hoạt động tốt kể cả khi JS chưa load xong.
+
+```text
+/app
+├── @auth
+│   ├── (.)login
+│   │   └── page.tsx    ← login modal
+│   └── default.tsx     ← null
+├── login
+│   └── page.tsx        ← login page đầy đủ
+└── layout.tsx
+```
+
+### 2. Quick view sản phẩm — E-commerce
+
+Người dùng hover/click vào card sản phẩm → modal hiển thị thông tin nhanh (ảnh, giá, nút thêm vào giỏ), URL đổi thành `/products/abc`. Người dùng muốn xem chi tiết hơn → click “Xem chi tiết” mở trang sản phẩm đầy đủ. URL `/products/abc` có thể share được, SEO đầy đủ.
+
+### 3. Shopping cart side drawer
+
+Click icon giỏ hàng → drawer trượt ra từ phải, URL đổi thành `/cart`. Người dùng vẫn thấy trang đang xem bên dưới. Nhấn Back hoặc click ngoài → drawer đóng, quay lại trang cũ.
+
+### 4. User profile popover
+
+Trong ứng dụng social, click vào tên người dùng → popover hiển thị thông tin tóm tắt và nút Follow, URL đổi thành `/users/[username]`. Người dùng click vào tên → trang profile đầy đủ.
+
+### 5. Image/video lightbox trong CMS
+
+Trong trang quản lý media, click vào file → lightbox xem trước mở ra, URL dẫn đến file cụ thể — có thể share link để cộng tác viên xem đúng file đó.
+
+## Bảng ví dụ tổng hợp
+
+| Pattern | Ý nghĩa | Ví dụ thực tế | Column 4 |
+| :-- | :-- | :-- | :-- |
+| `@folder` | Named slot — không tạo URL segment, layout nhận làm prop | Sidebar điều hướng \+ main content render song song trong cùng layout | `<br/>app/feed/<br/>├── **@content/**<br/>├── **@sidebar/**<br/>└── layout.tsx<br/>` |
+| `(.)folder` | Intercept route cùng cấp | Navbar có link `/login` — click mở modal, truy cập thẳng `/login` → trang đầy đủ | `<br/>app/<br/>├── **@auth/**<br/>│ ├── **(.)login/**<br/>│ │ └── page.tsx<br/>│ └── default.tsx<br/>├── login/<br/>│ └── page.tsx<br/>└── layout.tsx<br/>` |
+| `(..)folder` | Intercept route một cấp trên (`@slot` không tính là segment) | Click ảnh trong `/feed` → intercept `/photo/[id]`, modal overlay, feed vẫn còn bên dưới | `<br/>app/<br/>├── **@modal/**<br/>│ ├── **(..)photo/**<br/>│ │ └── [id]/page.tsx<br/>│ └── default.tsx<br/>├── feed/page.tsx<br/>└── photo/[id]/page.tsx<br/>` |
+| `(..)(..)folder` | Intercept route hai cấp trên | Trong `/checkout/payment`, click “xem lại” → intercept `/shop/[id]`, quick-view ngay trong trang thanh toán | `<br/>app/<br/>├── checkout/<br/>│ └── payment/<br/>│ ├── **@modal/**<br/>│ │ └── **(..)(..)shop/**<br/>│ │ └── [id]/page.tsx<br/>│ └── page.tsx<br/>└── shop/[id]/page.tsx<br/>` |
+| `(...)folder` | Intercept từ `app/` root, bất kể đang ở nested level nào | Click notification bell ở navbar → intercept `/notifications` từ mọi trang, hiện drawer overlay | `<br/>app/<br/>├── dashboard/<br/>│ └── settings/<br/>│ ├── **@modal/**<br/>│ │ └── **(...)notifications/**<br/>│ │ └── page.tsx<br/>│ └── page.tsx<br/>└── notifications/page.tsx<br/>` |
+
+## Nested Routes vs Intercepting Routes — Khi nào dùng cái nào?
+
+Đây là điểm dễ nhầm nhất. Cả hai đều cho shareable URL và SEO đầy đủ, nhưng hành vi khi hard navigate thì khác nhau hoàn toàn.
+
+[**Nested Routes**](https://coda.io/d/_dINStbw4UsM/_su0YD-jZ) — hard navigate và soft navigate cho kết quả **giống nhau**:
+
+Tôi đã có bài viết về [useState vs URL-driven UI](https://coda.io/d/_dINStbw4UsM/_su0YD-jZ), trong đó sử dụng Nested Routes để tạo Modal.
+
+```text
+app/
+├── list/
+│   ├── new/
+│   │   └── page.tsx    → /list/new
+│   ├── layout.tsx      → render <UrlList /> + {children}
+│   └── page.tsx        → /list
+```
+
+Dù người dùng click từ `/list` hay paste thẳng `/list/new` vào tab mới, họ đều thấy list \+ modal cùng lúc — vì `layout.tsx` luôn render.
+
+**Intercepting Routes** — hard navigate và soft navigate cho kết quả **khác nhau**:
+
+|  | **Soft navigate (click )** | **Hard navigate (paste URL, F5)** |
+| :-- | :-- | :-- |
+| **Nested Routes** | Modal \+ context trang cha bên dưới | Modal \+ context trang cha bên dưới |
+| **Intercepting Routes** | Modal \+ context trang cha bên dưới | **Trang đầy đủ, không có context trang cha** |
+
+Câu hỏi thực tế để chọn đúng: _"Khi người dùng paste link vào tab mới, tôi muốn họ thấy gì?"_
+
+- **Thấy modal trong context của trang cha** (list vẫn hiển thị bên dưới) → Nested Routes là đủ, đơn giản hơn nhiều
+- **Thấy trang độc lập, không có context trang cha** (chỉ thấy mỗi trang ảnh, không có gallery) → cần Intercepting Routes
+
+Ví dụ Instagram: click ảnh từ profile → modal overlay trên profile. Nhưng paste link ảnh vào tab mới → trang ảnh đầy đủ, không thấy profile của ai cả. Đây là lý do Instagram cần Intercepting Routes, còn một trang `/list/new` đơn giản thì không cần.
+
+## Best practices
+
+**Luôn có** `default.tsx` **trả về** `null` **trong slot modal.** Đây là file bắt buộc — không có nó, khi hard navigate vào bất kỳ trang nào không phải `/photo/[id]`, slot `@modal` sẽ không biết render gì và trả về 404.
+
+**Dùng** `router.back()` **để đóng modal, không dùng** `router.push('/')`**.** `router.back()` giữ đúng navigation history. `router.push('/')` sẽ đẩy một entry mới vào history, người dùng nhấn Back không quay lại feed mà đi đến trang trước đó trong lịch sử.
+
+**Tách** `<Modal>` **wrapper và nội dung modal thành hai component riêng.** Wrapper (`Modal`) là Client Component để xử lý `router.back()` và animation. Còn nội dung bên trong (form, data) nên là Server Component. Pattern này giúp tận dụng được Server Component cho phần lớn UI.
+
+```tsx app/@modal/(..)photo/[id]/page.tsx
+import { Modal } from '@/components/modal'        // Client Component
+import { PhotoDetail } from '@/components/photo'  // Server Component
+
+export default function PhotoModal({ params }) {
+  return (
+    <Modal>
+      <PhotoDetail id={params.id} />
+    </Modal>
+  )
+}
+```
+
+**Nếu có nhiều modal, gom tất cả intercepting routes vào một slot duy nhất.** Nếu dùng nhiều slot parallel routes (`@modal1`, `@modal2`), cả hai đều render cùng lúc — hai modal chồng lên nhau. Thay vào đó, dùng một slot `@modal` và đặt tất cả intercepting routes bên trong:
+
+```text
+/@modal
+├── (.)login
+│   └── page.tsx
+├── (.)cart
+│   └── page.tsx
+└── default.tsx
+```
+
+**Intercepting Routes chỉ hoạt động với** `<Link>` **và** `router.push()`**.** Dùng `<a>` tag thông thường, `window.location`, hoặc mở link trong tab mới đều là hard navigation — intercepting route sẽ không được kích hoạt.
+
+**Kiểm tra ký hiệu** `(.)` **cẩn thận.** Đây là lỗi phổ biến nhất. Nhớ rằng `@slot` không tính là route segment khi đếm cấp. Nếu modal không xuất hiện khi click, rất có thể bạn đang dùng sai ký hiệu.
+
+## Kết luận
+
+Intercepting Routes giải quyết bài toán **shareable modal** — kết hợp trải nghiệm modal mượt mà với URL thật sự có thể share và SEO-friendly:
+
+- **Soft navigate** (click `<Link>`) → intercept, hiển thị modal trên trang hiện tại
+- **Hard navigate** (paste URL, F5) → không intercept, hiển thị trang đầy đủ
+- `default.tsx` → bắt buộc có để slot không bị 404
+- **Một slot** `@modal` → gom tất cả intercepting routes vào một chỗ
+
+Component thuần đỡ rắc rối hơn rất nhiều — và thực tế phần lớn modal trong production không cần Intercepting Routes.
+
+Nên dùng component thuần khi:
+
+- Modal không cần share link
+- Không cần SEO cho nội dung trong modal
+- F5 đóng modal là hành vi chấp nhận được (ví dụ confirm dialog, form popup đơn giản)
+
+Intercepting Routes chỉ thực sự cần thiết khi bạn cần **cả ba thứ cùng lúc**:
+
+- URL thay đổi khi mở modal → có thể share link
+- F5 không mất context → hard navigate ra trang đầy đủ thay vì đóng modal
+- Back button đóng modal thay vì ra trang trước
+
+Ví dụ điển hình là Instagram — click ảnh từ profile, URL đổi thành `/p/abc123`, bạn copy link gửi bạn bè, họ mở ra thấy trang ảnh đầy đủ chứ không phải feed của bạn. Nếu dùng component thuần thì URL không đổi, link không share được.
+
+Nếu sản phẩm của bạn không có yêu cầu đó thì component thuần là lựa chọn đúng — đơn giản hơn, ít bug hơn, dễ maintain hơn.

@@ -1,0 +1,258 @@
+---
+title: "Next.js Caching: Hướng dẫn thực chiến cho production"
+sidebarTitle: "4 lớp Cache"
+---
+
+Bạn deploy xong, mở trang lên thấy dữ liệu vẫn cũ. Bạn đã gọi `revalidatePath`, đã `router.refresh()`, thậm chí clear hết cookie mà vẫn thế. 
+
+Hoặc ngược lại: trang load chậm vì data cứ fetch đi fetch lại mỗi lần ai vào.
+
+Cả hai vấn đề đều xuất phát từ một chỗ: **không hiểu rõ Next.js đang cache ở đâu, và theo quy tắc nào.**
+
+Để giải quyết vấn đề này, bạn cần hiểu 4 lớp Cache của Next.js.
+
+## 4 lớp cache của Next.js
+
+Next.js không chỉ có một “cache” — nó có bốn lớp, mỗi lớp hoạt động độc lập:
+
+| Lớp | Nằm ở đâu | Tồn tại bao lâu |
+| :-- | :-- | :-- |
+| Request Memoization | Server (RAM) | 1 request |
+| Data Cache | Server (disk) | Cho đến khi revalidate |
+| Full Route Cache | Server (disk) | Cho đến khi revalidate |
+| Router Cache | Client (RAM) | Phiên duyệt web |
+
+### 1. Request Memoization
+
+Đây là tính năng của React, không phải riêng Next.js. Trong một lần render, nếu nhiều component cùng gọi `fetch` với URL và options giống nhau, React chỉ thực sự gọi request đó **một lần duy nhất** — các lần sau trả về kết quả đã lưu trong RAM.
+
+```tsx
+// Component A
+const data = await fetch('https://api.example.com/posts')
+
+// Component B — cùng URL, cùng options → không tốn thêm request
+const data = await fetch('https://api.example.com/posts')
+```
+
+Cache này tự xóa sau mỗi request. Bạn không cần quản lý gì.
+
+> **Lưu ý:** Request Memoization chỉ áp dụng cho GET, chỉ chạy trên server component, và không hoạt động trong route handler (`route.ts`).
+
+Nếu bạn dùng Drizzle / Prisma / DB trực tiếp thay vì `fetch`, hãy dùng hàm `cache` của React:
+
+```tsx
+import { cache } from 'react'
+
+export const getUser = cache(async (id: string) => {
+  return db.query.users.findFirst({ where: eq(users.id, id) })
+})
+```
+
+Trường hợp này thường gặp nhất là khi bạn cần phải lấy thông tin của một trang 2 lần: một lần cho hàm `generateMetadata`, và một lần cho chính component của trang đó. Tôi có đề cập đến ở bài trước về [Metadata trong Next.js](/next-js/metadata).
+
+### 2. Data Cache
+
+Đây là cache phía server, lưu kết quả `fetch` **giữa các request khác nhau** — kể cả người dùng khác nhau. Dữ liệu tồn tại trên disk cho đến khi bạn chủ động revalidate.
+
+Đây thường là nguyên nhân chính khiến “dữ liệu không chịu cập nhật dù backend đã thay đổi.”
+
+### 3. Full Route Cache
+
+Next.js có thể render sẵn toàn bộ một trang (HTML \+ RSC Payload) lúc build, rồi serve thẳng file tĩnh đó cho tất cả request. Đây là cách các trang tĩnh của bạn load cực nhanh.
+
+### 4. Router Cache (Client Cache)
+
+Khi bạn điều hướng giữa các trang trong Next.js, trình duyệt lưu RSC Payload của các trang đã ghé thăm trong RAM. Chuyển qua lại giữa các trang sẽ không cần gọi server. Đây là lý do Next.js cảm giác nhanh như SPA.
+
+## Sự thay đổi qua các phiên bản
+
+Đây là điểm **dễ gây nhầm lẫn nhất** khi đọc tài liệu cũ hoặc tutorial từ thời Next.js 14.
+
+### Next.js 14: Cache everything by default
+
+`fetch` mặc định dùng `force-cache` — tức là toàn bộ data đều được cache trừ khi bạn chủ động opt-out. Nghe có vẻ tốt cho performance, nhưng thực tế gây ra vô số bug khó debug.
+
+```tsx
+// Next 14: mặc định cache, data có thể stale
+const res = await fetch('https://api.example.com/posts')
+
+// Muốn không cache mới phải thêm
+const res = await fetch('https://api.example.com/posts', {
+  cache: 'no-store'
+})
+```
+
+### Next.js 15: Dynamic by default
+
+Next.js 15 đảo ngược hoàn toàn: **không cache gì cả** trừ khi bạn opt-in. `fetch` mặc định là `no-store`. Router Cache cho page segment cũng bị tắt theo mặc định.
+
+```tsx
+// Next 15: mặc định không cache
+const res = await fetch('https://api.example.com/posts')
+
+// Muốn cache mới phải thêm
+const res = await fetch('https://api.example.com/posts', {
+  cache: 'force-cache'
+})
+```
+
+### Next.js 16: Explicit caching với `use cache`
+
+Next.js 16 giới thiệu **Cache Components** — một mô hình hoàn toàn mới, tường minh hơn nhiều. Thay vì config qua option của `fetch`, bạn dùng directive `'use cache'` trực tiếp trong function hoặc component.
+
+Đây là thay đổi lớn nhất trong lịch sử caching của Next.js, và là hướng đi cho tương lai.
+
+## Caching trong Next.js 16 với `use cache`
+
+### Bật tính năng
+
+Thêm vào `next.config.ts`:
+
+```typescript
+import type { NextConfig } from 'next'
+
+const nextConfig: NextConfig = {
+  cacheComponents: true,
+}
+
+export default nextConfig
+```
+
+### Cache ở cấp độ data (function)
+
+Dùng khi bạn muốn cache kết quả của một hàm fetch hoặc DB query:
+
+```tsx
+import { cacheLife } from 'next/cache'
+
+export async function getPosts() {
+  'use cache'
+  cacheLife('hours')
+  return db.query('SELECT * FROM posts')
+}
+```
+
+Thay vì dùng số giây như trước (`revalidate: 3600`), bạn dùng **semantic profiles**:
+
+| Profile | Ý nghĩa thực tế |
+| :-- | :-- |
+| `'seconds'` | Revalidate sau vài giây |
+| `'minutes'` | Revalidate sau vài phút |
+| `'hours'` | Revalidate sau vài tiếng |
+| `'days'` | Revalidate sau vài ngày |
+| `'weeks'` | Revalidate sau vài tuần |
+
+### Cache ở cấp độ component/page
+
+```tsx
+import { cacheLife } from 'next/cache'
+
+export default async function BlogPage() {
+  'use cache'
+  cacheLife('days')
+
+  const posts = await db.query('SELECT * FROM posts')
+
+  return (
+    <ul>
+      {posts.map(post => (
+        <li key={post.id}>{post.title}</li>
+      ))}
+    </ul>
+  )
+}
+```
+
+Directive `'use cache'` có thể đặt ở đầu file (cache toàn bộ exports), hoặc ngay trong function/component cụ thể.
+
+### Cache với tag để revalidate theo nhu cầu
+
+```tsx
+import { cacheLife, cacheTag } from 'next/cache'
+
+export async function getPosts() {
+  'use cache'
+  cacheLife('hours')
+  cacheTag('posts')  // gán tag cho cache này
+  return db.query('SELECT * FROM posts')
+}
+```
+
+Khi có bài viết mới được tạo, gọi `revalidateTag` trong Server Action:
+
+```tsx
+'use server'
+import { revalidateTag } from 'next/cache'
+
+export async function createPost(data: FormData) {
+  await db.insert(posts).values({ ... })
+  revalidateTag('posts')  // xóa toàn bộ cache có tag 'posts'
+}
+```
+
+## Còn `fetch` options thì sao?
+
+Nếu bạn **không dùng** `cacheComponents: true`, cách cũ vẫn hoạt động và vẫn là mặc định:
+
+```tsx
+// Không cache (mặc định Next 15+)
+const res = await fetch(url, { cache: 'no-store' })
+
+// Cache có revalidate theo thời gian
+const res = await fetch(url, { next: { revalidate: 60 } })
+
+// Cache có tag
+const res = await fetch(url, { next: { tags: ['posts'] } })
+```
+
+Cách này vẫn hợp lệ, nhưng giới hạn ở `fetch` — không dùng được cho DB query trực tiếp. Đó là lý do `'use cache'` ra đời để giải quyết triệt để.
+
+## Best practices cho production
+
+**Trang hoàn toàn tĩnh** (giới thiệu, landing page): Dùng `'use cache'` với `cacheLife('weeks')` hoặc `cacheLife('days')`. Chỉ rebuild khi có cập nhật nội dung.
+
+**Trang hỗn hợp** (blog, danh sách sản phẩm): Cache function lấy dữ liệu chính, phần động (số lượt xem, giỏ hàng) để uncached. Đây là sức mạnh của Partial Prerendering — bạn không cần chọn “tất cả static” hoặc “tất cả dynamic” nữa.
+
+```tsx
+export default async function ProductPage({ params }) {
+  const product = await getCachedProduct(params.id)  // có 'use cache'
+  
+  return (
+    <div>
+      <ProductInfo product={product} />
+      <Suspense fallback={<div>Loading...</div>}>
+        <DynamicReviews productId={params.id} />  {/* uncached */}
+      </Suspense>
+    </div>
+  )
+}
+```
+
+**Trang cá nhân hóa** (dashboard, profile): Không cache page-level. Chỉ cache những dữ liệu chung ít thay đổi như danh sách menu, cấu hình hệ thống.
+
+**Lưu ý quan trọng:** `'use cache'` không thể đọc `cookies()` hay `headers()` trực tiếp bên trong. Hãy đọc chúng bên ngoài, rồi truyền vào như argument:
+
+```tsx
+// ❌ Sai
+export async function getUserData() {
+  'use cache'
+  const cookieStore = await cookies()  // lỗi!
+}
+
+// ✅ Đúng
+const cookieStore = await cookies()
+const userId = cookieStore.get('userId')?.value
+const user = await getCachedUser(userId)  // truyền vào như argument
+```
+
+**Test cache đúng cách:** Dev mode không cache dữ dội như production. Để kiểm tra thực tế, hãy chạy `npm run build` và `npm start`, sau đó dùng `console.log` trong server component để xem component có bị re-render hay không.
+
+## Tóm tắt
+
+Next.js có bốn lớp cache: Request Memoization (per-request), Data Cache (persistent server), Full Route Cache (trang tĩnh), Router Cache (client). Ba phiên bản có triết lý khác nhau hoàn toàn: v14 cache mặc định, v15 dynamic mặc định, v16 explicit opt-in với `'use cache'`.
+
+Trong Next.js 16, cách làm chuẩn là:
+
+- Dùng `'use cache'` \+ `cacheLife(profile)` để khai báo tường minh thứ gì cần cache
+- Dùng `cacheTag` để gán nhãn, `revalidateTag` để xóa cache theo nhu cầu
+- Wrap phần dynamic trong `<Suspense>` để tận dụng Partial Prerendering

@@ -10,8 +10,7 @@ Trong bài trước chúng ta đã làm quen với cấu trúc thư mục và Ap
 
 Next.js mặc định mọi component đều là **Server Component** — tức là chúng chạy trên server, không phải trên trình duyệt. Nhờ đó, bạn có thể **kết nối thẳng vào database** và query dữ liệu ngay bên trong component, không cần tạo API route trung gian.
 
-```typescript
-// src/db/queries.ts
+```typescript src/db/queries.ts
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { drizzle } from "drizzle-orm/d1";
 import { sitemapEntries } from "@/db/schema";
@@ -28,8 +27,7 @@ export async function getSitemapEntries() {
 
 Sau đó dùng ngay trong component, chỉ cần thêm `async`:
 
-```tsx
-// app/page.tsx
+```tsx src/app/page.tsx
 import { getSitemapEntries } from "@/db/queries";
 
 // nhớ chuyển function thành async
@@ -111,8 +109,7 @@ Ranh giới rõ ràng nhất là: **Server Component fetch là one-shot khi rend
 
 Next.js có một file reserved là `loading.tsx`. Đặt nó cùng thư mục với `page.tsx`, Next sẽ tự động hiển thị component này trong khi trang đang chờ dữ liệu.
 
-```tsx
-// app/loading.tsx
+```tsx src/app/loading.tsx
 export default function Loading() {
   return (
     <div className="flex min-h-screen items-center justify-center">
@@ -128,8 +125,7 @@ Cách này đơn giản, nhưng có một hạn chế: nó **ẩn toàn bộ tra
 
 Giải pháp tốt hơn là tách phần cần dữ liệu thành một component riêng, rồi bọc nó bằng `<Suspense>`:
 
-```tsx
-// app/page.tsx
+```tsx src/app/page.tsx
 import { Suspense } from "react";
 import { getSitemapEntries } from "@/db/queries";
 
@@ -164,9 +160,7 @@ Như vậy, tiêu đề `<h1>` hiển thị ngay lập tức, chỉ có danh sá
 
 Tương tự, Next.js có file reserved `error.tsx` để bắt lỗi xảy ra trong quá trình render:
 
-```tsx
-// app/error.tsx
-
+```tsx src/app/error.tsx
 // error boundary hoạt động ở phía client
 'use client'; // bắt buộc phải có
 
@@ -196,8 +190,7 @@ Có hai điểm quan trọng:
 
 Khi một trang hoặc resource không tồn tại, dùng file `not-found.tsx` để tạo template 404:
 
-```tsx
-// app/not-found.tsx
+```tsx src/app/not-found.tsx
 export default function NotFound() {
   return (
     <div>
@@ -254,10 +247,9 @@ Prop `reset` cho phép re-render lại segment hiện tại mà không cần rel
 
 ## Tóm tắt
 
-| Column 1 | Column 2 | Column 3 |
-| :-- | :-- | :-- |
 | File | Mục đích | Lưu ý |
+| :-- | :-- | :-- |
 | `loading.tsx` | Hiển thị skeleton/spinner khi trang đang load | Ẩn toàn bộ trang — cân nhắc dùng `<Suspense>` thay thế |
 | `<Suspense>` | Loading có chọn lọc theo từng component | Linh hoạt hơn `loading.tsx`, ưu tiên dùng |
-| `error.tsx` | Bắt lỗi runtime trong route segment | **Bắt buộc** `'use client'` |
+| `error.tsx` | Bắt lỗi runtime trong route segment | **Bắt buộc**`'use client'` |
 | `not-found.tsx` | Hiển thị trang 404 | Dùng cùng `notFound()` từ `next/navigation` |
