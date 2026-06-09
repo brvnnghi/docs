@@ -1,0 +1,159 @@
+---
+title: "Arrow Function trong JavaScript"
+---
+
+Khi bắt đầu làm việc với các stack như React, Node.js hay bất kỳ framework JavaScript nào, bạn sẽ thấy cú pháp `=>` xuất hiện khắp nơi - trong callback của `fetch`, trong các method như `.map()`, `.filter()`, hay trong các component của React. Nếu chưa quen với Arrow Function, code của người khác sẽ trông khá lạ lẫm.
+
+Bài viết này là một "refresher" nhanh về Arrow Function, giúp bạn đọc và viết được cú pháp này trước khi bước vào học bất kỳ JavaScript stack nào.
+
+---
+
+## Arrow Function là gì?
+
+Arrow Function là cú pháp rút gọn để khai báo function, được giới thiệu từ ES6 (2015). Thay vì viết `function() { ... }`, bạn dùng `() => { ... }`.
+
+Ví dụ đơn giản nhất:
+
+```js
+const numbers = [1, 2, 3, 4, 5];
+const doubled = numbers.map((number) => number * 2);
+// [2, 4, 6, 8, 10]
+```
+
+Arrow Function được dùng nhiều nhất trong các callback như `.map()`, `.filter()`, `.then()`, vì nó giúp code ngắn gọn và dễ đọc hơn.
+
+---
+
+## Cách khai báo
+
+### Function bình thường (function expression)
+
+```js
+const add = function(a, b) {
+  return a + b;
+};
+```
+
+### Arrow Function
+
+```js
+const add = (a, b) => {
+  return a + b;
+};
+```
+
+### Arrow Function rút gọn - nếu chỉ có 1 dòng `return`
+
+Khi thân hàm chỉ có một biểu thức duy nhất để trả về, bạn có thể bỏ luôn `{}` và `return`:
+
+```js
+const add = (a, b) => a + b;
+```
+
+Nếu chỉ có 1 tham số, bạn còn có thể bỏ cả dấu ngoặc `()`, siêu gọn:
+
+```js
+const double = n => n * 2;
+```
+
+---
+
+## Dùng Arrow Function như callback
+
+Đây là nơi Arrow Function tỏa sáng nhất. So sánh 3 cách viết callback cho `.then()`:
+
+```js
+// Function bình thường
+.then(function(res) {
+  return res.json();
+})
+
+// Arrow Function
+.then((res) => {
+  return res.json();
+})
+
+// Arrow Function rút gọn - cách viết phổ biến nhất
+.then(res => res.json())
+```
+
+Cả 3 đều làm cùng một việc. Trong thực tế, bạn sẽ thường thấy cách rút gọn nhất.
+
+---
+
+## Function lồng Function
+
+Một pattern hay gặp là truyền Arrow Function trực tiếp làm argument khi gọi hàm, thay vì phải khai báo riêng:
+
+```js
+function greet(greetFunc, name) {
+  return greetFunc(name);
+}
+
+// Viết dài - khai báo riêng
+console.log(
+  greet(function(name) { return 'Hi ' + name; }, 'Tony')
+)
+
+// Viết ngắn - truyền Arrow Fn trực tiếp
+console.log(greet((name) => 'Hi ' + name, 'Tony'))
+```
+
+---
+
+## Lưu ý quan trọng
+
+### 1. Không có hoisting - phải khai báo trước khi dùng
+
+Function bình thường được "hoisted" lên đầu file, nên bạn có thể gọi nó trước khi khai báo. Arrow Function thì không.
+
+```js
+regular(); // chạy OK
+arrow();   // Lỗi: Cannot access 'arrow' before initialization
+
+function regular() {
+  console.log('Regular');
+}
+
+const arrow = () => console.log('Arrow');
+```
+
+### 2. Không có `this`
+
+Đây là điểm khác biệt lớn nhất. Function bình thường tạo ra `this` riêng của nó, trỏ đến object đang gọi hàm. Arrow Function không tạo `this`, nên nó dùng `this` từ scope bên ngoài.
+
+```js
+const person = {
+  name: 'Brad',
+
+  sayHelloRegular: function () {
+    console.log('Regular:', this.name); // "Brad"
+  },
+
+  sayHelloArrow: () => {
+    console.log('Arrow:', this.name); // undefined
+  },
+};
+
+person.sayHelloRegular(); // Regular: Brad
+person.sayHelloArrow();   // Arrow: undefined
+```
+
+`sayHelloArrow` không có `this` của riêng nó, nên `this` ở đây trỏ ra scope bên ngoài object - là `{}` (trong Node.js ES Modules) hoặc `window` (trong browser). Cả hai đều không có thuộc tính `name`, nên kết quả là `undefined`.
+
+**Khi nào nên dùng function bình thường?** Khi bạn cần truy cập `this`, ví dụ trong object methods hay class methods. Với các callback thuần túy không liên quan đến `this`, Arrow Function là lựa chọn tốt hơn.
+
+---
+
+## Tóm tắt
+
+|  | Function bình thường | Arrow Function |
+| :-- | :-- | :-- |
+| Cú pháp | `function(a, b) { return ... }` | `(a, b) => ...` |
+| Hoisting | Có | Không |
+| `this` | Có (trỏ đến object gọi hàm) | Không (dùng `this` từ scope ngoài) |
+| Dùng khi | Object/class methods, cần `this` | Callback, xử lý dữ liệu |
+
+Arrow Function không phải là "phiên bản mới hơn" của function bình thường, mà là một công cụ khác phù hợp với những tình huống khác nhau. Trong thực tế, bạn sẽ dùng Arrow Function cho hầu hết các callback (`.map`, `.filter`, `.then`...), và dùng function bình thường khi cần `this`.
+
+Khi đã quen với Arrow Function, bạn sẽ sẵn sàng hơn để đọc code trong React, Node.js, hay bất kỳ JavaScript stack nào khác.

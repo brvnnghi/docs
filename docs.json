@@ -24,12 +24,15 @@
         "tab": "Home",
         "pages": [
           "index"
-        ]
+        ],
+        "icon": "alarm-clock-check",
+        "hidden": true
       },
       {
         "tab": "Javascript",
         "pages": [
-          "javascript/index"
+          "javascript/index",
+          "javascript/arrow-function"
         ]
       },
       {
