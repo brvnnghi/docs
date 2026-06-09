@@ -1,0 +1,237 @@
+---
+title: "Xây dựng Types thông minh trong Next.js: Composition thay vì lặp lại"
+description: "Bí quyết là xây dựng một bộ “từ vựng cơ bản” nhỏ, rồi compose ra các type cần thiết từ đó."
+sidebarTitle: "Xây dựng bộ Types thông minh"
+---
+
+Bạn đang xây dựng một tính năng quản lý bài viết trong Next.js:
+
+- có một form để tạo bài
+- một draft tự động lưu
+- một row trong database
+- và một kiểu dữ liệu sạch để dùng trong app.
+
+Bốn thứ khác nhau, nhưng chúng đều xoay quanh cùng một khái niệm: `Post`.
+
+Cách nhiều người xử lý là… định nghĩa bốn type riêng biệt, ở mỗi nơi cần, rồi mỗi cái copy lại `title`, `body`, `id` theo cách riêng.
+
+Hoặc ngược lại, dồn tất cả vào một `Post` khổng lồ rồi dùng `Partial<Post>` cho mọi thứ. Cả hai đều có vấn đề: một cái thì lặp lại quá nhiều, một cái thì mơ hồ đến mức TypeScript không còn giúp được bạn nữa.
+
+Bài này đi theo hướng pro-level hơn: **xây dựng một bộ “từ vựng cơ bản” nhỏ, rồi compose ra các type cần thiết từ đó.**
+
+### Bước 1: Định nghĩa các mảnh ghép một lần
+
+Thay vì nghĩ “tôi cần type `Post`”, hãy hỏi: `Post` _được cấu thành từ những nhóm thông tin nào?_
+
+```typescript
+export type PostId = string
+export type PostStatus = 'draft' | 'published'
+
+export type PostCore = {
+  title: string
+  body: string
+}
+
+export type PostMeta = {
+  id: PostId
+  createdAt: Date
+}
+
+export type PostPersistence = {
+  status: PostStatus
+}
+```
+
+Đây là các building block. Mỗi cái có một trách nhiệm rõ ràng:
+
+- `PostCore` — nội dung bài viết, do người dùng nhập vào
+- `PostMeta` — metadata hệ thống tạo ra, không phải người dùng
+- `PostPersistence` — trạng thái lưu trữ
+- `PostId`, `PostStatus` — primitive được đặt tên, dùng lại ở nhiều nơi
+
+### Bước 2: Compose type chính từ các mảnh đó
+
+```typescript
+export type Post = PostCore & PostMeta & PostPersistence
+```
+
+`Post` giờ là tập hợp của ba nhóm, tức là:
+
+- `title`, `body` — từ `PostCore`
+- `id`, `createdAt` — từ `PostMeta`
+- `status` — từ `PostPersistence`
+
+Không có field nào được định nghĩa hai lần. Nếu sau này bạn thêm `excerpt` vào `PostCore`, tất cả các type dùng `PostCore` đều cập nhật theo.
+
+### Bước 3: Tạo type cho form tạo Post
+
+Form tạo Post chỉ cho người dùng nhập `title` và `body`. Không cần `id`, không cần `createdAt`, không cần `status`. Vậy thì:
+
+```typescript
+export type PostFormInput = PostCore
+```
+
+Chỉ một dòng. Không cần khai báo lại. Khi `PostCore` thay đổi, `PostFormInput` thay đổi theo, đúng theo đúng nghĩa của nó.
+
+### Bước 4: Tạo type cho draft
+
+Draft là trạng thái trung gian — bài chưa được publish nhưng đã có ID để lưu tạm. Có hai biến thể thường gặp:
+
+Draft đã có ID nhưng chưa có đủ metadata:
+
+```typescript
+export type PostDraft = PostCore & Pick<PostMeta, 'id'>
+```
+
+Draft được cập nhật từng phần (ví dụ người dùng chỉ sửa tiêu đề) nhưng vẫn phải có `id` để lưu nháp:
+
+```typescript
+export type PostDraftPatch = Partial<PostCore> & Pick<PostMeta, 'id'>
+```
+
+`Pick` giúp lấy chính xác field cần thiết từ một type có sẵn mà không cần khai báo lại. `Partial` giúp làm cho tất cả các field trở thành optional — thích hợp cho các thao tác cập nhật từng phần.
+
+### Bước 5: Tạo type cho DB row
+
+Database không phải lúc nào cũng có cùng shape với app. Ví dụ, cột nullable trong SQL sẽ trả về `null`, không phải `undefined`:
+
+```typescript
+export type PostRow = {
+  id: string
+  title: string | null           // tiêu đề có thể null nếu chưa xuất bản
+  body: string | null            // body có thể null nếu chưa xuất bản
+  status: 'draft' | 'published'
+  createdAt: Date
+}
+```
+
+Type này thường đứng riêng vì DB shape là “dữ liệu thô”, còn `Post` là “dữ liệu đã được xử lý và tin cậy” ở tầng app.
+
+### Mapping functions: liên kết các type với nhau
+
+Các type đã được định nghĩa riêng — giờ cần các hàm để chuyển đổi giữa chúng. Đây là cách chúng liên kết, không phải bằng kế thừa, mà bằng **composition \+ mapping functions**:
+
+```typescript
+export function formToDraft(input: PostFormInput, id: PostId): PostDraft {
+  return {
+    id,
+    ...input,
+  }
+}
+
+export function draftToRow(draft: PostDraft): PostRow {
+  return {
+    id: draft.id,
+    title: draft.title,
+    body: draft.body,
+    status: 'draft',
+    createdAt: new Date(),
+  }
+}
+
+export function rowToPost(row: PostRow): Post {
+  return {
+    id: row.id,
+    title: row.title ?? '',
+    body: row.body ?? '',
+    status: row.status,
+    createdAt: row.createdAt,
+  }
+}
+```
+
+`rowToPost` xử lý null safety tại đúng một chỗ — biên giới giữa DB và app. Sau khi qua hàm này, `Post` sẽ không bao giờ có `null` trong `title` hay `body` nữa, và TypeScript biết điều đó.
+
+### Khi nào dùng `Pick`, `Omit`, `Partial`
+
+Các utility types này hữu ích cho các biến thể nhỏ, nhưng **không nên là thiết kế chính**:
+
+```typescript
+export type PostSummary = Pick<Post, 'id' | 'title' | 'status'>
+export type NewPostInput = Omit<Post, 'id' | 'createdAt' | 'status'>
+export type UpdatePostInput = Partial<PostCore>
+```
+
+Dùng tốt khi:
+
+- `Pick<Post, ...>` — tạo view model nhỏ, ví dụ cho danh sách bài viết
+- `Omit<Post, ...>` — tạo payload cho API create, loại bỏ field do server sinh ra
+- `Partial<PostCore>` — input cho patch/update, rõ ràng về phạm vi cho phép thay đổi
+
+Nên tránh:
+
+- `Partial<Post>` cho mọi thứ — mơ hồ, TypeScript không thể cảnh báo khi thiếu field quan trọng
+
+### Cấu trúc file gọn gàng
+
+Toàn bộ các type trên nằm trong một file duy nhất:
+
+```typescript src/types/post.ts
+export type PostId = string
+export type PostStatus = 'draft' | 'published'
+
+export type PostCore = {
+  title: string
+  body: string
+}
+
+export type PostMeta = {
+  id: PostId
+  createdAt: Date
+}
+
+export type PostPersistence = {
+  status: PostStatus
+}
+
+export type Post = PostCore & PostMeta & PostPersistence
+
+export type PostFormInput = PostCore
+export type PostDraft = PostCore & Pick<PostMeta, 'id'>
+export type PostDraftPatch = Partial<PostCore>
+
+export type PostSummary = Pick<Post, 'id' | 'title' | 'status'>
+
+export type PostRow = {
+  id: string
+  title: string | null
+  body: string | null
+  status: PostStatus
+  createdAt: Date
+}
+```
+
+Khi import trong các Server Action, component, hay service layer, bạn chỉ cần:
+
+```typescript
+import type { Post, PostFormInput, PostRow } from '@/types/post'
+```
+
+### Nguyên tắc thực tiễn
+
+**Nên extract:**
+
+- Nhóm field có ý nghĩa ổn định như `PostCore`, `PostMeta`
+- Primitive dùng lại ở nhiều nơi như `PostId`, `PostStatus`
+
+**Không nên extract:**
+
+- Mọi thứ vào “generic wizardry” trừu tượng quá mức
+- Type chỉ để tiết kiệm 2 dòng, không có nghĩa rõ ràng
+
+Điểm cân bằng là: **shared meaning, simple composition**. Type tốt không phải là type ngắn nhất hay type tổng quát nhất — mà là type khiến người đọc code hiểu ngay dữ liệu này đến từ đâu, dùng ở đâu.
+
+### Tóm tắt
+
+| Type | Cấu thành từ | Dùng ở đâu |
+| :-- | :-- | :-- |
+| `Post` | `PostCore & PostMeta & PostPersistence` | App logic, render |
+| `PostFormInput` | `PostCore` | Form component |
+| `PostDraft` | `PostCore & Pick<PostMeta, 'id'>` | Auto-save, draft API |
+| `PostDraftPatch` | `Partial<PostCore>` | Partial update |
+| `PostRow` | Định nghĩa riêng | DB layer |
+| `PostSummary` | `Pick<Post, ...>` | List view |
+
+Pattern này scale tốt. Khi domain phức tạp hơn — thêm `author`, `tags`, `seo` — bạn chỉ cần thêm building block mới và compose tiếp, không cần đập đi làm lại.
+
+Bước tiếp theo có thể là kết hợp pattern này với **Zod** để validation schema cũng được compose từ cùng các mảnh đó, hoặc dùng **drizzle-orm** để type DB row được infer tự động thay vì viết tay.

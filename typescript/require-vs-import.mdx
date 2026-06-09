@@ -1,0 +1,159 @@
+---
+title: "require vs import"
+description: "Từ Express thuần đến TypeScript"
+---
+
+Bạn đang quen tay với Express và Node.js, mỗi ngày viết `require` như một thói quen. Rồi một ngày bạn mở một project TypeScript, hoặc đọc một tutorial hiện đại, và bắt gặp `import express from 'express'` — trông gọn hơn, “xịn” hơn, nhưng lại không rõ nó khác gì `require` không, hay chỉ là cú pháp khác cho cùng một thứ?
+
+Bài viết này sẽ giúp bạn hiểu rõ hai hệ thống module này, cách chuyển đổi tư duy từ CJS sang ESM, và đặc biệt là `exports` vs `export default` — thứ hay gây nhầm lẫn nhất khi mới chuyển sang TypeScript.
+
+## Hai hệ thống module trong JavaScript
+
+JavaScript có **hai hệ thống module** hoàn toàn khác nhau:
+
+- **CommonJS (CJS)** — ra đời cùng Node.js, dùng `require` / `module.exports`
+- **ES Modules (ESM)** — chuẩn hiện đại của JavaScript, dùng `import` / `export`
+
+Chúng không phải là “cú pháp khác nhau cho cùng một thứ” — chúng là **hai cơ chế khác nhau** về cách load và xử lý module.
+
+### CommonJS — Người bạn cũ của Express
+
+Nếu bạn đang viết Express, bạn đang dùng CJS:
+
+```javascript
+// Nhập module
+const express = require('express');
+const { Router } = require('express');
+
+// Xuất một thứ duy nhất
+module.exports = router;
+
+// Xuất nhiều thứ
+module.exports = { sequelize, User, Post };
+```
+
+CJS hoạt động theo kiểu **đồng bộ** — `require()` đọc file, thực thi ngay, trả về kết quả. Đơn giản và dễ đoán.
+
+### ES Modules — Chuẩn hiện đại
+
+ESM là cú pháp `import`/`export` bạn thấy trong TypeScript và các framework hiện đại:
+
+```javascript
+// Nhập module
+import express from 'express';
+import { Router } from 'express';
+
+// Xuất một thứ duy nhất
+export default router;
+
+// Xuất nhiều thứ
+export { sequelize, User, Post };
+```
+
+ESM hoạt động theo kiểu **bất đồng bộ** và được **phân tích tĩnh** (static analysis) — nghĩa là JavaScript biết bạn import gì trước khi chạy code. Đây là lý do TypeScript yêu thích ESM.
+
+## `exports` vs `export`: Coi chừng dư chữ “s”
+
+Đây là điểm hay bị nhầm nhất: **coi chừng dư chữ “s”**. Hãy đối chiếu trực tiếp:
+
+### Xuất nhiều thứ (Named Export)
+
+```javascript
+// ✅ CommonJS
+module.exports = { sequelize, User, Post };
+
+// Hoặc từng cái một
+exports.funcName = async (req, res) => { ... };
+exports.otherFunc = async (req, res) => { ... };
+```
+
+```typescript
+// ✅ ESM / TypeScript
+export { sequelize, User, Post };
+
+// Hoặc export trực tiếp khi khai báo
+export const funcName = async (req, res) => { ... };
+export const otherFunc = async (req, res) => { ... };
+```
+
+> **Lưu ý:** Với `default export`, bạn đặt tên gì khi import cũng được. Với `named export`, tên phải khớp (hoặc dùng `as` để đổi tên).
+
+## Bảng đối chiếu đầy đủ
+
+| Hành động | CommonJS | ESM / TypeScript |
+| :-- | :-- | :-- |
+| Import cả module | `const x = require('x')` | `import x from 'x'` |
+| Import có chọn lọc | `const { a, b } = require('x')` | `import { a, b } from 'x'` |
+| Export một thứ | `module.exports = x` | `export default x` |
+| Export nhiều thứ | `module.exports = { a, b }` | `export { a, b }` |
+| Export từng cái | `exports.a = ...` | `export const a = ...` |
+| Import động | `require('./x')` | `await import('./x')` |
+
+## `import` trong TypeScript hoạt động thế nào?
+
+Khi bạn viết TypeScript với cấu hình mặc định (`"module": "commonjs"` trong `tsconfig.json`):
+
+```typescript
+// Bạn viết thế này
+import express from 'express';
+```
+
+TypeScript **biên dịch xuống** thành:
+
+```javascript
+// Node.js thực thi thế này
+const express = require('express');
+```
+
+Vậy nên, về runtime, TypeScript vẫn đang dùng CJS — chỉ là bạn được viết cú pháp ESM gọn hơn, và được hưởng lợi từ type checking.
+
+Nếu muốn dùng ESM thật sự với TypeScript, đổi `tsconfig.json`:
+
+```json
+{
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "bundler"
+  }
+}
+```
+
+Nhưng với Express API thông thường, `"module": "commonjs"` là đủ và ít rắc rối hơn.
+
+## Một số lưu ý thực tế
+
+**✅ Nên làm:**
+
+- Trong TypeScript, dùng `import`/`export` nhất quán — đừng trộn với `require`
+- Dùng `export default` cho thứ chính của file (router, class, function chính)
+- Dùng `named export` khi file xuất nhiều thứ ngang hàng nhau (models, utils…)
+
+**❌ Tránh:**
+
+```typescript
+// ❌ Tránh trộn lẫn trong TypeScript
+import express from 'express';
+const cors = require('cors'); // đừng làm vậy
+
+// ❌ Tránh vừa có default vừa có named export tràn lan
+export default router;
+export const handler = ...; // dễ gây nhầm khi import
+```
+
+**Quy tắc nhỏ để nhớ:**
+
+- Mỗi file nên có **một phong cách export nhất quán** — hoặc `default`, hoặc `named`, không nên trộn
+- File `models/index.ts` thường dùng `named export` để re-export nhiều model
+- File `routes/user.ts` thường dùng `export default` vì chỉ xuất một router
+
+## Tóm tắt
+
+- **CommonJS** (`require`/`module.exports`) là hệ thống module mặc định của Node.js, dùng phổ biến trong Express
+- **ESM** (`import`/`export`) là chuẩn hiện đại, TypeScript sử dụng cú pháp này
+- TypeScript mặc định **biên dịch** `**import**` **xuống** `**require**` — nên runtime vẫn là CJS
+- `module.exports = { a, b }` tương đương `export { a, b }` — đều là named export
+- `module.exports = x` tương đương `export default x` — đều là default export
+
+Khi chuyển sang TypeScript, bạn không cần lo lắng quá nhiều về sự khác biệt — cứ dùng cú pháp `import`/`export` và TypeScript sẽ lo phần còn lại.
+
+**Bước tiếp theo:** Khi đã quen với TypeScript, bạn có thể tìm hiểu thêm về **path alias** (`@/models/User` thay vì `../../models/User`), **barrel file** (pattern dùng `index.ts` để re-export), và cách tổ chức module trong một project Express \+ TypeScript lớn hơn.

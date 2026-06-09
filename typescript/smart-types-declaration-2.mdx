@@ -1,0 +1,253 @@
+---
+title: "Xây dựng Types thông minh trong Next.js (Phần 2): Để Drizzle infer type từ DB schema"
+sidebarTitle: "Xây dựng bộ Types thông minh (P2)"
+---
+
+Ở [bài trước](/typescript/smart-types-declaration-1), chúng ta đã xây dựng một bộ type từ những mảnh nhỏ như `PostCore`, `PostMeta`, `PostPersistence` rồi compose lại. Pattern đó hoạt động tốt — nhưng có một điểm yếu: `PostRow` đang được viết tay.
+
+```typescript
+export type PostRow = {
+  id: string
+  title: string | null
+  body: string | null
+  status: 'draft' | 'published'
+  createdAt: Date
+}
+```
+
+Khi bạn đổi kiểu của một cột trong DB schema — ví dụ `title` từ `varchar(255)` sang `text`, hoặc thêm cột mới — bạn phải nhớ cập nhật `PostRow` bằng tay. Nếu quên, TypeScript vẫn biên dịch được nhưng type đã lệch với thực tế.
+
+Nếu bạn đang dùng **Drizzle ORM**, bạn không cần làm vậy nữa. Drizzle có thể infer `PostRow` trực tiếp từ schema, và mọi thay đổi ở schema sẽ tự động phản ánh vào type.
+
+## Drizzle infer type là gì?
+
+Drizzle là một ORM cho TypeScript với triết lý “schema as code”. Bạn định nghĩa cấu trúc bảng bằng TypeScript, và Drizzle dùng chính định nghĩa đó để:
+
+- generate SQL migration
+- type-check các câu query
+- **infer ra type của row khi đọc và khi insert**
+
+Điểm khác biệt so với Prisma hay Sequelize là Drizzle không có runtime model layer — schema của bạn chỉ là một object TypeScript thuần, và type được infer tĩnh từ đó, không cần codegen.
+
+## Bước 1: Schema là nguồn sự thật duy nhất
+
+Mọi thứ bắt đầu từ đây:
+
+```typescript src/db/schema.ts
+import { mysqlTable, varchar, timestamp, mysqlEnum, char } from 'drizzle-orm/mysql-core'
+
+export const posts = mysqlTable('posts', {
+  id: char('id', { length: 36 }).notNull().primaryKey(),
+  title: varchar('title', { length: 255 }),
+  body: varchar('body', { length: 5000 }),
+  status: mysqlEnum('status', ['draft', 'published']).notNull().default('draft'),
+  createdAt: timestamp('createdAt').notNull(),
+})
+```
+
+Một vài điểm đáng chú ý:
+
+- `title` và `body` không có `.notNull()` — tức là DB cho phép null, và Drizzle sẽ infer chúng là `string | null`
+- `status` có `.notNull().default('draft')` — Drizzle biết cột này không bao giờ null khi đọc ra, nhưng khi insert thì optional vì đã có default
+- `id` dùng `char(36)` — phù hợp cho UUID
+
+## Bước 2: Infer DB type từ schema
+
+```typescript src/types/post.ts
+import type { InferSelectModel, InferInsertModel } from 'drizzle-orm'
+import { posts } from '@/db/schema'
+
+export type PostRow = InferSelectModel<typeof posts>
+export type NewPostRow = InferInsertModel<typeof posts>
+```
+
+Hoặc dùng shorthand gắn trực tiếp vào table object:
+
+```typescript
+export type PostRow = typeof posts.$inferSelect
+export type NewPostRow = typeof posts.$inferInsert
+```
+
+Cả hai cách cho kết quả như nhau. 
+
+Cách `$inferSelect` / `$inferInsert` thường được ưa dùng hơn vì type gắn trực tiếp với table, dễ đọc và không cần import thêm gì.
+
+## `$inferSelect` và `$inferInsert` khác nhau chỗ nào?
+
+Đây là phần quan trọng. Khi Drizzle infer, nó hiểu **ngữ nghĩa của từng cột** dựa trên khai báo schema.
+
+Với schema ở trên, kết quả infer ra sẽ là:
+
+```typescript
+// PostRow — shape khi đọc từ DB
+type PostRow = {
+  id: string
+  title: string | null   // không có notNull()
+  body: string | null    // không có notNull()
+  status: 'draft' | 'published'
+  createdAt: Date
+}
+```
+
+```typescript
+// NewPostRow — shape khi insert vào DB
+type NewPostRow = {
+  id: string
+  title?: string | null  // optional vì DB có thể nhận null
+  body?: string | null   // optional vì DB có thể nhận null
+  status?: 'draft' | 'published'  // optional vì có default
+  createdAt: Date
+}
+```
+
+Điểm khác biệt: insert type thường “lỏng” hơn select type, vì các cột có `default` hoặc nullable trở thành optional khi insert. Nếu viết tay, bạn rất dễ quên điều này và tạo ra type không đúng với behavior thực của DB.
+
+## Bước 3: Build các mảnh ghép từ row inferred
+
+Thay vì tự khai báo `PostId = string` hay `PostStatus = 'draft' | 'published'`, hãy derive trực tiếp từ `PostRow`:
+
+```typescript
+export type PostId = PostRow['id']
+export type PostStatus = PostRow['status']
+
+export type PostContent = Pick<PostRow, 'title' | 'body'>
+export type PostMeta = Pick<PostRow, 'id' | 'createdAt'>
+```
+
+Lợi ích: nếu sau này bạn đổi `id` từ `char(36)` sang `int` (ví dụ), `PostId` tự cập nhật theo mà không cần chỉnh tay.
+
+## Bước 4: Tạo các app-level type từ những mảnh đó
+
+DB type và app type không nên là một. DB trả về nullable, còn app-level object thường cần stricter guarantee. Đây là cách tách biệt chúng:
+
+```typescript
+// Domain object sạch ở tầng app
+export type Post = Omit<PostRow, 'title' | 'body'> & {
+  title: string
+  body: string
+}
+```
+
+Dòng này có nghĩa: “lấy toàn bộ `PostRow`, nhưng override `title` và `body` thành `string` thay vì `string | null`.” App đảm bảo rằng sau khi qua tầng mapping, hai trường này luôn có giá trị — TypeScript sẽ enforce điều đó.
+
+Các type còn lại:
+
+```typescript
+// Editable draft
+export type PostDraft = Pick<PostRow, 'id'> & Partial<PostContent>
+
+// Form input từ người dùng
+export type PostFormInput = {
+  title: string
+  body: string
+}
+
+// DB insert payload
+export type CreatePostRow = NewPostRow
+```
+
+## Bước 5: Mapping functions — mắt xích nối các type
+
+Type chỉ là khai báo. Phần thực sự làm chúng liên kết là các hàm chuyển đổi:
+
+```typescript
+export function formToDraft(input: PostFormInput, id: PostId): PostDraft {
+  return {
+    id,
+    title: input.title,
+    body: input.body,
+  }
+}
+
+export function draftToInsertRow(draft: PostDraft): CreatePostRow {
+  return {
+    id: draft.id,
+    title: draft.title ?? null,
+    body: draft.body ?? null,
+    status: 'draft',
+    createdAt: new Date(),
+  }
+}
+
+export function rowToPost(row: PostRow): Post {
+  return {
+    id: row.id,
+    title: row.title ?? '',
+    body: row.body ?? '',
+    status: row.status,
+    createdAt: row.createdAt,
+  }
+}
+```
+
+`rowToPost` là nơi xử lý null safety một lần duy nhất. Sau hàm này, tầng app không cần lo `title` có thể là `null` nữa — vì `Post` đã đảm bảo điều đó.
+
+Toàn bộ chain:
+
+```text
+PostFormInput  →  PostDraft  →  CreatePostRow  →  (DB)  →  PostRow  →  Post
+   user input      editable      drizzle insert    read      clean app object
+```
+
+## File hoàn chỉnh
+
+```typescript src/types/post.ts
+import { posts } from '@/db/schema'
+
+export type PostRow = typeof posts.$inferSelect
+export type NewPostRow = typeof posts.$inferInsert
+
+export type PostId = PostRow['id']
+export type PostStatus = PostRow['status']
+export type PostContent = Pick<PostRow, 'title' | 'body'>
+
+export type PostFormInput = {
+  title: string
+  body: string
+}
+
+export type PostDraft = Pick<PostRow, 'id'> & Partial<PostContent>
+
+export type CreatePostRow = NewPostRow
+
+export type Post = Omit<PostRow, 'title' | 'body'> & {
+  title: string
+  body: string
+}
+```
+
+Gọn hơn bài trước, và `PostRow` giờ không bao giờ bị lệch với schema thực tế.
+
+## Nguyên tắc thực tiễn
+
+**Nên để Drizzle infer:**
+
+- Row type khi đọc (`$inferSelect`)
+- Insert type (`$inferInsert`)
+- Primitive derive từ row như `PostId`, `PostStatus`
+
+**Nên viết tay:**
+
+- Form input type (`PostFormInput`) — vì đây là UI concern, không phải DB concern
+- Domain type với guarantee chặt hơn DB (`Post`) — vì app biết nhiều hơn DB
+- View model nhỏ cho UI (`PostSummary`) — vì đây là presentation concern
+
+**Tránh:**
+
+- Viết tay `PostRow` khi đã có Drizzle — dễ lệch, khó maintain
+- Dùng `PostRow` trực tiếp ở tầng UI — nullable field sẽ lan khắp component
+- Dùng `Partial<PostRow>` cho mọi thứ — mất đi tính chính xác mà TypeScript có thể đảm bảo
+
+## Tóm tắt
+
+| Type | Dùng ở đâu | Nguồn gốc |
+| :-- | :-- | :-- |
+| `PostRow` | `$inferSelect` | DB layer, mapper |
+| `NewPostRow` | `$inferInsert` | Drizzle insert |
+| `PostId`, `PostStatus` | Derive từ `PostRow` | Dùng lại khắp app |
+| `PostContent` | `Pick<PostRow, ...>` | Building block |
+| `Post` | `Omit<PostRow, ...> & {...}` | App logic, render |
+| `PostFormInput` | Viết tay | Form component |
+| `PostDraft` | Compose từ `PostRow` | Auto-save, draft API |
+
+Pattern này đặc biệt hữu ích khi schema thay đổi thường xuyên trong giai đoạn đầu của dự án. Bạn chỉ cần sửa `schema.ts`, chạy migration, và TypeScript sẽ báo ngay chỗ nào trong app bị ảnh hưởng — không cần đi tìm thủ công.

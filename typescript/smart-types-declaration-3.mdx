@@ -1,0 +1,353 @@
+---
+title: "Xây dựng Types thông minh trong Next.js (Phần 3): Mở rộng quan hệ giữa nhiều bảng"
+sidebarTitle: "Xây dựng bộ Types thông minh (P3)"
+---
+
+Hai [bài](/typescript/smart-types-declaration-1) [trước](/typescript/smart-types-declaration-2) đã xây dựng xong type system cho một bảng `posts` đơn giản. Nhưng trong thực tế, một bài viết hiếm khi đứng một mình. Nó có tác giả, có tags phân loại, có ảnh hoặc video đính kèm.
+
+Khi bạn query `posts` kèm theo các bảng liên quan, kết quả trả về không còn là một flat object nữa — nó là một **cây dữ liệu lồng nhau**. Và type system của bạn cũng phải phản ánh điều đó.
+
+Câu hỏi thực tế xuất hiện ngay: type của một bài viết kèm author, tags, và media trông như thế nào? Viết tay hay để Drizzle infer? Nếu để Drizzle infer thì infer bằng cách nào?
+
+Bài này trả lời từng câu.
+
+## Bức tranh tổng thể
+
+Chúng ta sẽ làm việc với bốn bảng:
+
+- `posts` — bài viết (đã có từ bài trước)
+- `authors` — tác giả
+- `tags` — danh sách tag
+- `post_tags` — bảng trung gian, nhiều-nhiều giữa `posts` và `tags`
+- `post_media` — ảnh/video đính kèm, quan hệ một-nhiều với `posts`
+
+Quan hệ giữa chúng:
+
+```text
+posts ──── belongs to ────▶ authors
+posts ──── has many ──────▶ post_media
+posts ──── has many ──────▶ post_tags ──── belongs to ────▶ tags
+```
+
+## Bước 1: Định nghĩa schema cho tất cả các bảng
+
+```typescript src/db/schema.ts
+import {
+  mysqlTable, varchar, timestamp, mysqlEnum,
+  char, int, primaryKey,
+} from 'drizzle-orm/mysql-core'
+import { relations } from 'drizzle-orm'
+
+// --- Authors ---
+export const authors = mysqlTable('authors', {
+  id: char('id', { length: 36 }).notNull().primaryKey(),
+  name: varchar('name', { length: 255 }).notNull(),
+  email: varchar('email', { length: 255 }).notNull(),
+  avatarUrl: varchar('avatarUrl', { length: 1000 }),
+  createdAt: timestamp('createdAt').notNull(),
+})
+
+// --- Tags ---
+export const tags = mysqlTable('tags', {
+  id: char('id', { length: 36 }).notNull().primaryKey(),
+  name: varchar('name', { length: 100 }).notNull(),
+  slug: varchar('slug', { length: 100 }).notNull(),
+})
+
+// --- Posts ---
+export const posts = mysqlTable('posts', {
+  id: char('id', { length: 36 }).notNull().primaryKey(),
+  title: varchar('title', { length: 255 }),
+  body: varchar('body', { length: 5000 }),
+  status: mysqlEnum('status', ['draft', 'published']).notNull().default('draft'),
+  authorId: char('authorId', { length: 36 }).notNull(),
+  createdAt: timestamp('createdAt').notNull(),
+})
+
+// --- Post Tags (junction table) ---
+export const postTags = mysqlTable('post_tags', {
+  postId: char('postId', { length: 36 }).notNull(),
+  tagId: char('tagId', { length: 36 }).notNull(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.postId, t.tagId] }),
+}))
+
+// --- Post Media ---
+export const postMedia = mysqlTable('post_media', {
+  id: char('id', { length: 36 }).notNull().primaryKey(),
+  postId: char('postId', { length: 36 }).notNull(),
+  url: varchar('url', { length: 1000 }).notNull(),
+  type: mysqlEnum('type', ['image', 'video']).notNull(),
+  order: int('order').notNull().default(0),
+  createdAt: timestamp('createdAt').notNull(),
+})
+```
+
+Sau đó khai báo relations — đây là bước **bắt buộc** để Drizzle hiểu được cấu trúc khi dùng relational query với `with`:
+
+```typescript src/db/relations.ts
+import { relations } from 'drizzle-orm'
+import { posts, authors, tags, postTags, postMedia } from './schema'
+
+export const postsRelations = relations(posts, ({ one, many }) => ({
+  author: one(authors, {
+    fields: [posts.authorId],
+    references: [authors.id],
+  }),
+  postTags: many(postTags),
+  media: many(postMedia),
+}))
+
+export const authorsRelations = relations(authors, ({ many }) => ({
+  posts: many(posts),
+}))
+
+export const tagsRelations = relations(tags, ({ many }) => ({
+  postTags: many(postTags),
+}))
+
+export const postTagsRelations = relations(postTags, ({ one }) => ({
+  post: one(posts, { fields: [postTags.postId], references: [posts.id] }),
+  tag: one(tags, { fields: [postTags.tagId], references: [tags.id] }),
+}))
+
+export const postMediaRelations = relations(postMedia, ({ one }) => ({
+  post: one(posts, { fields: [postMedia.postId], references: [posts.id] }),
+}))
+```
+
+`relations()` không tạo ra foreign key trong DB — đó là việc của migration. Nó chỉ nói với Drizzle query builder: “khi tôi dùng `with`, hãy join theo cách này.”
+
+## Bước 2: Infer base row type cho từng bảng
+
+```typescript src/types/post.ts
+import { posts, authors, tags, postTags, postMedia } from '@/db/schema'
+
+export type PostRow       = typeof posts.$inferSelect
+export type NewPostRow    = typeof posts.$inferInsert
+
+export type AuthorRow     = typeof authors.$inferSelect
+export type TagRow        = typeof tags.$inferSelect
+export type PostTagRow    = typeof postTags.$inferSelect
+export type PostMediaRow  = typeof postMedia.$inferSelect
+```
+
+Cùng nguyên tắc từ bài trước: schema là nguồn sự thật, type được infer từ đó — không viết tay.
+
+## Bước 3: Infer type cho relational query
+
+Đây là phần mới. Khi bạn dùng `db.query.posts.findMany({ with: { author: true, ... } })`, kết quả trả về có shape lồng nhau. Để có được type đó mà **không phải tự mô tả lại**, có hai cách.
+
+### Cách 1: Infer từ chính câu query (đơn giản, thực tiễn)
+
+```typescript src/db/queries/post.ts
+import { db } from '@/db'
+
+// Khai báo query như một const — chưa await
+const postWithRelationsQuery = db.query.posts.findFirst({
+  with: {
+    author: true,
+    postTags: {
+      with: { tag: true },
+    },
+    media: true,
+  },
+})
+
+// Infer type từ return type của query đó
+export type PostWithRelations = NonNullable<Awaited<typeof postWithRelationsQuery>>
+```
+
+`Awaited<>` unwrap Promise, `NonNullable<>` loại bỏ `undefined` (vì `findFirst` có thể trả về `undefined`). Kết quả là một type tự động mô tả đúng shape của dữ liệu trả về, bao gồm cả nested relations.
+
+Shape thực tế của `PostWithRelations` sẽ là:
+
+```typescript
+type PostWithRelations = {
+  id: string
+  title: string | null
+  body: string | null
+  status: 'draft' | 'published'
+  authorId: string
+  createdAt: Date
+  author: {
+    id: string
+    name: string
+    email: string
+    avatarUrl: string | null
+    createdAt: Date
+  }
+  postTags: {
+    postId: string
+    tagId: string
+    tag: {
+      id: string
+      name: string
+      slug: string
+    }
+  }[]
+  media: {
+    id: string
+    postId: string
+    url: string
+    type: 'image' | 'video'
+    order: number
+    createdAt: Date
+  }[]
+}
+```
+
+TypeScript infer ra toàn bộ — bạn không cần viết một dòng nào trong đống type lồng nhau này.
+
+### Cách 2: Dùng `BuildQueryResult` của Drizzle (linh hoạt hơn)
+
+Cách 1 yêu cầu bạn phải có một query cụ thể để infer. Nếu bạn muốn định nghĩa type **độc lập với query**, Drizzle cung cấp utility type cho điều đó:
+
+```typescript
+import type {
+  BuildQueryResult,
+  DBQueryConfig,
+  ExtractTablesWithRelations,
+} from 'drizzle-orm'
+import * as schema from '@/db/schema'
+
+type Schema = ExtractTablesWithRelations<typeof schema>
+
+// Helper để build type từ config
+type InferQueryResult<
+  TableName extends keyof Schema,
+  Config extends DBQueryConfig<'many', boolean, Schema, Schema[TableName]> = {}
+> = BuildQueryResult<Schema, Schema[TableName], Config>
+```
+
+Sau đó dùng như sau:
+
+```typescript
+export type PostWithRelations = InferQueryResult<'posts', {
+  with: {
+    author: true
+    postTags: { with: { tag: true } }
+    media: true
+  }
+}>
+```
+
+Cách này tách type ra khỏi query cụ thể — hữu ích khi cùng một type được dùng ở nhiều nơi với nhiều query khác nhau nhưng cùng shape. Tuy nhiên nó phức tạp hơn cách 1, nên chỉ nên dùng khi thực sự cần.
+
+## Bước 4: Tạo app-level type từ dữ liệu lồng nhau
+
+`PostWithRelations` vẫn còn “thô” — nó phản ánh DB shape với nullable fields và junction table. Ở tầng app, bạn thường muốn một type gọn hơn:
+
+```typescript src/types/post.ts
+// Primitive types cho các bảng liên quan
+export type AuthorId = AuthorRow['id']
+export type TagId = TagRow['id']
+export type MediaType = PostMediaRow['type']
+
+// App-level author (đảm bảo avatarUrl không null ở tầng app)
+export type Author = Omit<AuthorRow, 'avatarUrl'> & {
+  avatarUrl: string
+}
+
+// Tag gọn — không cần biết đây là row từ DB hay không
+export type Tag = Pick<TagRow, 'id' | 'name' | 'slug'>
+
+// Media đã xử lý
+export type PostMedia = PostMediaRow
+
+// Post đầy đủ ở tầng app
+export type Post = Omit<PostRow, 'title' | 'body' | 'authorId'> & {
+  title: string
+  body: string
+  author: Author
+  tags: Tag[]
+  media: PostMedia[]
+}
+```
+
+Lưu ý `Post` ở đây đã khác bài trước: nó embed luôn `author`, `tags`, `media` thay vì chỉ lưu `authorId`. Đây là “domain object đã được resolve” — object bạn dùng trong component và server action, không cần đi query thêm gì nữa.
+
+## Bước 5: Mapper function cho dữ liệu lồng nhau
+
+```typescript src/lib/mappers/post.ts
+import type { PostWithRelations } from '@/db/queries/post'
+import type { Post, Author, Tag } from '@/types/post'
+
+function rowToAuthor(row: PostWithRelations['author']): Author {
+  return {
+    ...row,
+    avatarUrl: row.avatarUrl ?? '',
+  }
+}
+
+function rowToTag(postTag: PostWithRelations['postTags'][number]): Tag {
+  return {
+    id: postTag.tag.id,
+    name: postTag.tag.name,
+    slug: postTag.tag.slug,
+  }
+}
+
+export function rowToPost(row: PostWithRelations): Post {
+  return {
+    id: row.id,
+    title: row.title ?? '',
+    body: row.body ?? '',
+    status: row.status,
+    createdAt: row.createdAt,
+    author: rowToAuthor(row.author),
+    tags: row.postTags.map(rowToTag),
+    media: row.media,
+  }
+}
+```
+
+Điểm quan trọng: `postTags` trong DB là mảng của junction row `{ postId, tagId, tag: {...} }`. Mapper `rowToTag` “làm phẳng” nó thành `Tag` gọn hơn — tầng app không cần quan tâm đến `postId` hay `tagId` trong junction row.
+
+## Cấu trúc file đề xuất
+
+```text
+src/
+├── db/
+│   ├── schema.ts          # nguồn sự thật duy nhất
+│   ├── relations.ts       # khai báo relations cho Drizzle query builder
+│   └── queries/
+│       └── post.ts        # query + infer type từ query
+├── types/
+│   └── post.ts            # app-level types
+└── lib/
+    └── mappers/
+        └── post.ts        # mapper functions
+```
+
+Tách `relations.ts` khỏi `schema.ts` giúp tránh circular import khi schema phức tạp — và giúp file schema không bị phình to.
+
+## Nguyên tắc thực tiễn
+
+**Nên:**
+
+- Infer type cho relational query từ chính câu query (`Awaited<typeof ...>`) — đơn giản nhất
+- Dùng `BuildQueryResult` khi cần type độc lập với query cụ thể
+- Mapper function để “làm phẳng” junction table và xử lý null một lần
+- App-level type embed relation trực tiếp (`tags: Tag[]`) thay vì chỉ giữ `tagIds`
+
+**Tránh:**
+
+- Dùng `PostWithRelations` trực tiếp trong component — nullable field và junction row sẽ lan vào UI
+- Viết tay type cho nested relation — dễ lệch khi schema thay đổi
+- Một mapper “God function” xử lý mọi variant — nên tách `rowToAuthor`, `rowToTag`, `rowToPost` riêng biệt
+
+## Tóm tắt
+
+| Type | Nguồn gốc | Dùng ở đâu |
+| :-- | :-- | :-- |
+| `PostRow`, `AuthorRow`, `TagRow`… | `$inferSelect` | DB layer, mapper input |
+| `PostWithRelations` | `Awaited<typeof query>` | Mapper input |
+| `Post` | Compose từ `PostRow` \+ embed relations | App logic, component |
+| `Author` | Omit \+ override từ `AuthorRow` | Embed trong `Post` |
+| `Tag` | `Pick<TagRow, ...>` | Embed trong `Post` |
+| `PostMedia` | Alias của `PostMediaRow` | Embed trong `Post` |
+
+Ba bài trong series này đi theo một hướng nhất quán: **schema là nguồn sự thật duy nhất**, type được infer hoặc derive từ đó, và mapping function là nơi duy nhất xử lý sự khác biệt giữa DB shape và app shape. Không viết tay cái gì mà Drizzle đã biết, không để DB shape rò rỉ lên tầng UI.
+
+Khi domain tiếp tục lớn — thêm `comments`, `reactions`, hay phân quyền theo `author` — pattern này vẫn scale tốt vì mỗi tầng có trách nhiệm rõ ràng và type luôn có một nguồn gốc xác định.
