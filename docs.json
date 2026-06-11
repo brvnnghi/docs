@@ -4,7 +4,7 @@
   "name": "You Học Code",
   "description": "Onboarding, employee handbook, HR guides, IT help, company policies, and department runbooks.",
   "colors": {
-    "primary": "#0000FF",
+    "primary": "#166E3F",
     "light": "#26BD6C",
     "dark": "#166E3F"
   },
@@ -16,11 +16,7 @@
     "timestamp": true
   },
   "contextual": {
-    "options": [
-      "copy",
-      "view",
-      "assistant"
-    ]
+    "options": ["copy", "view", "assistant", "mcp", "add-mcp"]
   },
   "navigation": {
     "tabs": [
@@ -120,8 +116,8 @@
   "navbar": {
     "links": [
       {
-        "href": "/next-js/",
-        "label": "Đặt câu hỏi"
+        "label": "Submit IT ticket",
+        "href": "/it-security/access-requests"
       }
     ],
     "primary": {
@@ -132,16 +128,8 @@
   },
   "footer": {
     "socials": {
-      "x": "https://x.com/hiresvn"
-    }
-  },
-  "fonts": {
-    "family": "Inter"
-  },
-  "background": {
-    "color": {
-      "light": "#fffff3",
-      "dark": "#727272"
+      "x": "https://x.com/yourcompany",
+      "linkedin": "https://linkedin.com/company/yourcompany"
     }
   }
 }
