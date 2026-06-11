@@ -2,7 +2,9 @@
 toc-item > a {
   position: relative;
   padding-left: 1rem !important;
+  text-align: left !important;
 }
+
 toc-item[data-active-deepest] > a::before {
   content: "";
   position: absolute;
