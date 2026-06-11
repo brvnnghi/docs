@@ -25,8 +25,7 @@
         "pages": [
           "index"
         ],
-        "icon": "alarm-clock-check",
-        "hidden": true
+        "icon": "house"
       },
       {
         "tab": "Javascript",
