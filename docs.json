@@ -6,7 +6,7 @@
   "colors": {
     "primary": "#2323FF",
     "light": "#0000FF",
-    "dark": "##3E51C9"
+    "dark": "#3E51C9"
   },
   "favicon": "/favicon.ico",
   "icons": {
@@ -45,7 +45,8 @@
               "react/react-component",
               "react/state-usestate",
               "react/state-lifting-props",
-              "react/state-modal-conditional-rendering"
+              "react/state-modal-conditional-rendering",
+              "react/useeffect-basics"
             ]
           }
         ],

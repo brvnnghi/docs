@@ -1,0 +1,197 @@
+---
+title: "useEffect: Hiểu đúng để dùng đúng"
+description: "Nếu bạn đã từng thấy component bị render vòng lặp vô tận, data fetch chạy liên tục không dừng, hoặc event listener bị attach nhiều lần — rất có thể nguyên nhân là dùng useEffect chưa đúng cách."
+sidebarTitle: "useEffect cơ bản"
+---
+`useEffect` là hook để **đồng bộ component với thế giới bên ngoài**, như gọi API, thao tác DOM, subscribe vào event, kết nối WebSocket… 
+
+Nhưng nó có một tham số quyết định *khi nào* nó chạy, và nếu dùng sai thì hậu quả không nhỏ.
+## Cú pháp tổng quát
+
+```tsx
+useEffect(() => {
+  // effect: code chạy sau render
+
+  return () => {
+    // code (thường là clean-up) chạy trước lần effect tiếp theo hoặc khi unmount
+  };
+}, [dependencies]); // dependency array: quyết định khi nào effect chạy lại
+```
+
+Tất cả các pattern của `useEffect` đều xoay quanh hai thứ: **có clean-up hay không**, và **dependency array trông như thế nào**.
+## 1. Không có dependency array — chạy sau mỗi lần render
+
+```tsx
+useEffect(() => {
+  console.log("Component vừa render xong");
+});
+```
+
+Effect chạy sau **mỗi lần** component render — dù là render đầu tiên hay do state/props thay đổi. Ít dùng trong thực tế vì dễ gây vòng lặp nếu bên trong có `setState`.
+
+**Khi nào dùng:** Debug xem component render bao nhiêu lần, hoặc những tác vụ thực sự cần chạy lại sau mọi render (rất hiếm).
+## 2. Dependency array rỗng `[]` — chạy một lần lúc mount
+
+```tsx
+useEffect(() => {
+  fetch("/api/user")
+    .then((res) => res.json())
+    .then((data) => setUser(data));
+}, []);
+```
+
+Effect chỉ chạy **một lần duy nhất** sau lần render đầu tiên — tương đương `componentDidMount` trong class component.
+
+**Khi nào dùng:** Fetch data khởi tạo, đọc `localStorage`, khởi tạo thư viện bên thứ ba.
+
+```tsx
+useEffect(() => {
+  const saved = localStorage.getItem("theme");
+  if (saved) setTheme(saved);
+}, []);
+```
+
+Đọc `localStorage` trong `useEffect` với `[]` vì đây là tác vụ chỉ cần chạy một lần lúc mount — lấy giá trị đã lưu từ lần trước để khởi tạo state. 
+
+> Lưu ý: Không sử dụng `useState` để lấy `localStorage` khi đang ở trong một server-component của Next.js, vì `localStorage` thuộc Browser API, không tồn tại trên server — sẽ crash nếu dùng trong SSR (Next.js).
+## 3. Dependency array có giá trị `[a, b]` — chạy lại khi dependency thay đổi
+
+```tsx
+useEffect(() => {
+  if (!userId) return;
+
+  fetch(`/api/users/${userId}`)
+    .then((res) => res.json())
+    .then((data) => setProfile(data));
+}, [userId]);
+```
+
+Effect chạy lần đầu sau mount, và **chạy lại mỗi khi** `**userId**` **thay đổi**. Nếu có nhiều giá trị trong mảng, chỉ cần một giá trị thay đổi là effect chạy lại.
+
+**Khi nào dùng:** Fetch data phụ thuộc vào props hoặc state — đây là pattern phổ biến nhất trong thực tế.
+## 4. Có cleanup, dependency `[]` — attach một lần, detach khi unmount
+
+```tsx
+useEffect(() => {
+  function handleResize() {
+    setWindowWidth(window.innerWidth);
+  }
+
+  window.addEventListener("resize", handleResize);
+
+  return () => {
+    window.removeEventListener("resize", handleResize);
+  };
+}, []);
+```
+
+Effect attach event listener **một lần** khi mount. Cleanup remove nó **khi component unmount**. Nếu không có cleanup, mỗi lần component mount lại sẽ attach thêm một listener — cùng event bị xử lý nhiều lần.
+
+**Khi nào dùng:** Event listener (`resize`, `scroll`, `keydown`), timer (`setInterval`), kết nối một lần.
+## 5. Có cleanup, dependency có giá trị — dọn cũ trước khi tạo mới
+
+```tsx
+useEffect(() => {
+  const channel = supabase
+    .channel(`room-${roomId}`)
+    .on("broadcast", { event: "message" }, (payload) => {
+      setMessages((prev) => [...prev, payload]);
+    })
+    .subscribe();
+
+  return () => {
+    channel.unsubscribe();
+  };
+}, [roomId]);
+```
+
+Mỗi khi `roomId` thay đổi: cleanup **unsubscribe khỏi phòng cũ** trước, rồi effect **subscribe vào phòng mới**. Không có cleanup thì mỗi lần đổi phòng bạn vẫn nhận tin nhắn từ tất cả các phòng trước đó.
+
+Trình tự chính xác:
+
+```
+mount          → subscribe room-1
+roomId đổi    → unsubscribe room-1 → subscribe room-2
+unmount        → unsubscribe room-2
+```
+
+**Khi nào dùng:** WebSocket, realtime subscription (Supabase, Firebase), bất kỳ kết nối nào cần đóng lại trước khi mở kết nối mới.
+## 6. Cleanup với blob URL — tránh memory leak
+
+```tsx
+useEffect(() => {
+  return () => {
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+    }
+  };
+}, [previewUrl]);
+```
+
+Trường hợp này effect không làm gì cả — chỉ có cleanup. Mỗi khi `previewUrl` thay đổi (người dùng chọn ảnh mới), URL cũ được giải phóng khỏi bộ nhớ trước khi URL mới được tạo.
+
+**Khi nào dùng:** Bất cứ khi nào tạo resource tốn bộ nhớ cần được giải phóng thủ công — blob URL, canvas context, timer, v.v.
+## Lưu ý thực tế
+
+### Không bỏ dependency vào mảng để “tránh chạy lại”
+
+Nếu effect dùng một giá trị nhưng bạn không khai báo nó trong dependency array, effect sẽ đọc giá trị cũ (stale closure) — đây là nguồn gốc của rất nhiều bug khó tìm.
+
+ESLint plugin `exhaustive-deps` sẽ cảnh báo bạn về điều này.
+
+Hay gặp nhất ở **3 tình huống** này:
+
+**1. Polling / interval đọc state**
+
+Đúng như ví dụ vừa rồi — dùng `setInterval` để gọi API định kỳ hoặc đếm ngược, nhưng quên `count` hoặc các filter/param trong dependency. Timer chạy nhưng luôn dùng giá trị cũ.
+
+**2. Fetch data dùng param từ state/props**
+
+```tsx
+useEffect(() => {
+  fetch(`/api/posts?page=${page}`); // page luôn là 1
+}, []); // quên khai báo page
+```
+
+Người dùng chuyển trang, `page` thay đổi nhưng effect không chạy lại — data vẫn là trang 1. Bug này khó nhận ra vì UI trông bình thường, chỉ data là sai.
+
+**3. Event handler bên trong effect dùng state**
+
+```tsx
+useEffect(() => {
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") submitForm(inputValue); // inputValue luôn là ""
+  });
+}, []); // quên khai báo inputValue
+```
+
+Người dùng gõ vào input, nhấn Enter — form submit với giá trị rỗng vì handler “nhớ” `inputValue` lúc mount. Loại bug này **rất khó debug** vì nhìn code có vẻ đúng hoàn toàn.
+
+
+
+Điểm chung của cả 3 là: effect chạy **một lần** với `[]`, bên trong có dùng giá trị động, nhưng không khai báo vào dependency. Cảm giác ban đầu thấy `[]` “an toàn” vì không lo effect chạy lại — nhưng đó chính là bẫy.
+
+### Không đặt object hay array trực tiếp vào dependency
+
+```tsx
+// Sai — object mới được tạo mỗi lần render, effect chạy liên tục
+useEffect(() => { ... }, [{ id: userId }]);
+
+// Đúng — dùng giá trị primitive
+useEffect(() => { ... }, [userId]);
+```
+
+### Cleanup là bắt buộc nếu effect tạo ra “kết nối”
+
+Event listener, subscription, interval, blob URL — tất cả đều cần cleanup. Quên cleanup không gây lỗi ngay, nhưng sẽ tích lũy thành vấn đề hiệu suất hoặc behavior kỳ lạ về sau.
+## Tóm tắt
+
+|                   | Không cleanup                  | Có cleanup                              |
+| ----------------- | ------------------------------ | --------------------------------------- |
+| **Không có** `[]` | Chạy sau mọi render            | Dọn trước mỗi render tiếp theo          |
+| `[]` **rỗng**     | Chạy 1 lần lúc mount           | Chạy 1 lần lúc mount, dọn khi unmount   |
+| `[a, b]`          | Chạy lại khi a hoặc b thay đổi | Dọn cũ → chạy lại khi a hoặc b thay đổi |
+
+`useEffect` chỉ có một việc: **chạy code sau khi render, và dọn dẹp khi cần**. Toàn bộ sự phức tạp đến từ việc kiểm soát *khi nào* nó chạy qua dependency array, và *có cần dọn dẹp gì không* qua cleanup function.
+
+Nắm chắc 6 pattern trên là đủ để xử lý hầu hết các tình huống thực tế.
