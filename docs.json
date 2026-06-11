@@ -2,11 +2,11 @@
   "$schema": "https://mintlify.com/docs.json",
   "theme": "willow",
   "name": "You Học Code",
-  "description": "Onboarding, employee handbook, HR guides, IT help, company policies, and department runbooks.",
+  "description": "Học code dễ dàng qua những bài blog ôn tập.",
   "colors": {
-    "primary": "#166E3F",
-    "light": "#26BD6C",
-    "dark": "#166E3F"
+    "primary": "#2323FF",
+    "light": "#0000FF",
+    "dark": "##3E51C9"
   },
   "favicon": "/favicon.ico",
   "icons": {
@@ -16,7 +16,7 @@
     "timestamp": true
   },
   "contextual": {
-    "options": ["copy", "view", "assistant", "mcp", "add-mcp"]
+    "options": ["copy", "view", "assistant"]
   },
   "navigation": {
     "tabs": [
@@ -94,6 +94,12 @@
               "next-js/build-your-own-image-picker",
               "next-js/metadata",
               "next-js/routing-advanced"
+            ]
+          },
+          {
+            "group": "Kinh nghiệm",
+            "pages": [
+              "next-js/build-simple-slideshow"
             ]
           },
           {
