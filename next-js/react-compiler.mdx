@@ -1,0 +1,269 @@
+---
+title: 'Tại sao bạn nên bật "--react-compiler" trong dự án Next.js mới nhất?'
+description: "Lợi ích rõ ràng nhất: Xóa sổ useMemo, useCallback, memo."
+sidebarTitle: "React Compiler"
+---
+
+Bạn đang xây dựng một component danh sách sản phẩm. Ban đầu nó đơn giản, nhưng dần dần bạn thêm filter, sort, pagination… và bắt đầu nhận ra UI bị giật khi user tương tác.
+
+Bạn mở DevTools, thấy cả cây component re-render mỗi khi state thay đổi dù phần lớn trong số đó không liên quan gì đến thay đổi đó.
+
+Giải pháp quen thuộc là bọc mọi thứ trong `useMemo`, `useCallback`, `memo`…
+
+Nhưng rồi bạn lại phải lo thêm: dependency array có đúng không? Có vô tình tạo closure stale không? Code ngày càng khó đọc hơn.
+
+Đó chính xác là vấn đề mà **React Compiler** sinh ra để giải quyết. Mình đã thử và xác nhận là KHÔNG CẦN `useMemo` cũng như `useCallback` nữa.
+
+## React Compiler là gì?
+
+React Compiler là một **build-time tool** — nghĩa là nó chạy trong quá trình build, phân tích code của bạn và tự động thêm memoization vào những chỗ cần thiết. Bạn không cần sửa một dòng code nào.
+
+Tháng 10/2025, React Compiler chính thức ra mắt phiên bản **stable 1.0**, sau nhiều năm được phát triển nội bộ tại Meta (trước đây có tên là “React Forget”). Hiện tại nó hỗ trợ:
+
+- **React 17, 18, 19** (tối ưu nhất với React 19)
+- **Next.js 15.3.1\+** — tích hợp sẵn, bật bằng một dòng config
+- **Next.js 16** — React Compiler Support được đánh dấu là **stable**
+- **React Native / Expo**
+- **Vite**, **Rsbuild**, và các bundler khác
+
+Câu lệnh để khởi tạo một dự án Next.js chuẩn có React Compiler:
+
+```shellscript
+npx create-next-app@latest marnext --app --src-dir --ts --tailwind --react-compiler
+# --app: sử dụng App Router
+# --src-dir: đặt /app trong thư mục /src 
+# --ts (hoặc --typescript): ngôn ngữ chính là TS
+# --tailwind: có tailwind (optional)
+# --react-compiler: có react compiler
+```
+
+## Lợi ích rõ ràng nhất: Xóa sổ `useMemo`, `useCallback`, `memo`
+
+Đây là ví dụ điển hình nhất. Trước khi có React Compiler, bạn phải viết:
+
+```tsx
+// ❌ Trước — manual memoization, dài dòng và dễ sai
+import { useMemo, useCallback, memo } from 'react'
+
+const ProductList = memo(function ProductList({ products, onSelect }) {
+  const sorted = useMemo(() => {
+    return [...products].sort((a, b) => a.price - b.price)
+  }, [products])
+
+  const handleSelect = useCallback((id: string) => {
+    onSelect(id)
+  }, [onSelect])
+
+  return (
+    <ul>
+      {sorted.map(p => (
+        <ProductItem key={p.id} product={p} onClick={() => handleSelect(p.id)} />
+      ))}
+    </ul>
+  )
+})
+```
+
+Có một bug tinh vi ở đây: dù `handleSelect` được bọc trong `useCallback`, arrow function `() => handleSelect(p.id)` vẫn tạo ra một function mới mỗi lần render — khiến `ProductItem` luôn re-render bất kể `memo` có được dùng hay không.
+
+Với React Compiler, bạn chỉ cần viết:
+
+```tsx
+// ✅ Sau — clean, đơn giản, compiler lo phần còn lại
+function ProductList({ products, onSelect }) {
+  const sorted = [...products].sort((a, b) => a.price - b.price)
+
+  const handleSelect = (id: string) => {
+    onSelect(id)
+  }
+
+  return (
+    <ul>
+      {sorted.map(p => (
+        <ProductItem key={p.id} product={p} onClick={() => handleSelect(p.id)} />
+      ))}
+    </ul>
+  )
+}
+```
+
+Compiler sẽ tự phân tích data-flow, xác định những giá trị nào thực sự thay đổi và memoize chính xác từng phần — kể cả từng JSX element riêng lẻ, không phải chỉ toàn bộ component.
+
+## Compiler đã làm gì đằng sau hậu trường?
+
+React Compiler hoạt động theo các bước sau ở build time:
+
+1. **Phân tích AST** — Compiler đọc code của bạn và xây dựng một biểu diễn trung gian (HIR — High-level Intermediate Representation) riêng của nó.
+2. **Hiểu data-flow và mutability** — Compiler theo dõi từng biến, prop, state để biết cái nào có thể thay đổi giữa các lần render.
+3. **Tự động thêm memoization** — Compiler chèn memoization vào đúng chỗ, thậm chí có thể memoize có điều kiện — điều mà `useMemo`/`useCallback` thủ công không thể làm được.
+
+Bạn có thể quan sát điều này trong **React DevTools**: các component được compiler tối ưu sẽ hiển thị badge **“Memo ✨”**.
+
+## Điều kiện bắt buộc: Tuân thủ Rules of React
+
+React Compiler không phải phép màu tùy tiện. Nó hoạt động **dựa trên giả định** rằng code của bạn tuân theo [Rules of React](https://react.dev/reference/rules). Nếu không, compiler sẽ bỏ qua component đó và không tối ưu — hoặc tệ hơn, tối ưu sai.
+
+Có ba nhóm rules chính bạn cần nắm:
+
+### 1. Components và Hooks phải pure
+
+> Xem chi tiết: [Components and Hooks must be pure](https://react.dev/reference/rules/components-and-hooks-must-be-pure)
+
+- Component phải **idempotent** — cùng props/state thì luôn trả về cùng output.
+- **Side effects** (gọi API, đọc/ghi file…) không được chạy trong render, chỉ chạy trong `useEffect` hoặc event handler.
+- **Props và state là immutable** — không được mutate trực tiếp, phải tạo object mới.
+
+```tsx
+// ❌ Sai — mutate props trực tiếp
+function BadComponent({ items }) {
+  items.push({ id: 99, name: 'Extra' }) // KHÔNG ĐƯỢC làm thế này
+  return <List items={items} />
+}
+
+// ✅ Đúng — tạo array mới
+function GoodComponent({ items }) {
+  const extended = [...items, { id: 99, name: 'Extra' }]
+  return <List items={extended} />
+}
+```
+
+### 2. React gọi Components và Hooks, không phải bạn
+
+> Xem chi tiết: [React calls Components and Hooks](https://react.dev/reference/rules/react-calls-components-and-hooks)
+
+- **Không gọi component như một function thông thường** — chỉ dùng chúng trong JSX.
+- **Không truyền hook như một giá trị thông thường** — hook chỉ được gọi bên trong component.
+
+```tsx
+// ❌ Sai
+function Page() {
+  return <div>{Header()}</div> // gọi trực tiếp như function
+}
+
+// ✅ Đúng
+function Page() {
+  return <div><Header /></div> // dùng như JSX
+}
+```
+
+### 3. Rules of Hooks
+
+> Xem chi tiết: [Rules of Hooks](https://react.dev/reference/rules/rules-of-hooks)
+
+- **Chỉ gọi hook ở top level** — không gọi trong vòng lặp, điều kiện, hoặc hàm lồng nhau.
+- **Chỉ gọi hook trong React function** — không gọi trong function JavaScript thông thường.
+
+```tsx
+// ❌ Sai — hook trong điều kiện
+function Component({ isLoggedIn }) {
+  if (isLoggedIn) {
+    const [data, setData] = useState(null) // KHÔNG ĐƯỢC
+  }
+}
+
+// ✅ Đúng — hook luôn ở top level
+function Component({ isLoggedIn }) {
+  const [data, setData] = useState(null)
+  // ...
+}
+```
+
+## Dùng ESLint để phát hiện code không tương thích
+
+Trước khi bật React Compiler cho toàn bộ dự án, bạn nên kiểm tra xem code hiện tại có vi phạm Rules of React không. Công cụ để làm điều này là `eslint-plugin-react-hooks` — từ phiên bản stable 1.0, các compiler rules đã được tích hợp thẳng vào plugin này.
+
+### Cài đặt
+
+```bash
+npm install --save-dev eslint-plugin-react-hooks@latest
+```
+
+### Cấu hình trong `eslint.config.mjs`
+
+```javascript
+import reactHooks from 'eslint-plugin-react-hooks'
+
+export default [
+  {
+    plugins: {
+      'react-hooks': reactHooks,
+    },
+    rules: {
+      ...reactHooks.configs['recommended-latest'].rules,
+    },
+  },
+]
+```
+
+Preset `recommended-latest` bao gồm đầy đủ các compiler rules mới nhất, bao gồm:
+
+- Phát hiện `setState` trong render gây render loop
+- Phát hiện side effects nặng bên trong `useEffect`
+- Phát hiện truy cập `ref` không an toàn trong render
+
+### Chạy lint
+
+```bash
+npx eslint src/
+```
+
+Nếu có lỗi, ESLint sẽ chỉ ra đúng file và dòng code vi phạm. Hãy sửa hết trước khi bật compiler.
+
+> **Lưu ý:** ESLint plugin có thể cài và chạy độc lập, không cần bật React Compiler. Đây là cách an toàn để kiểm tra chất lượng code trước.
+
+## Bật React Compiler trong Next.js
+
+Sau khi lint sạch, bật compiler chỉ cần một bước:
+
+```bash
+npm install babel-plugin-react-compiler@latest
+```
+
+```typescript
+// next.config.ts
+import type { NextConfig } from 'next'
+
+const nextConfig: NextConfig = {
+  reactCompiler: true,
+}
+
+export default nextConfig
+```
+
+Nếu muốn bật từng bước (opt-in per component), dùng `annotation` mode:
+
+```typescript
+const nextConfig: NextConfig = {
+  reactCompiler: {
+    compilationMode: 'annotation',
+  },
+}
+```
+
+Sau đó thêm directive `"use memo"` vào những component muốn tối ưu:
+
+```tsx
+function HeavyComponent() {
+  'use memo'
+  // compiler sẽ tối ưu component này
+}
+```
+
+Nếu một component cụ thể gặp vấn đề sau khi bật compiler, bạn có thể opt-out nó:
+
+```tsx
+function ProblematicComponent() {
+  'use no memo'
+  // compiler sẽ bỏ qua component này
+}
+```
+
+## Lời kết
+
+React Compiler 1.0 là một bước ngoặt thực sự cho hệ sinh thái React. Nó giúp bạn:
+
+- **Xóa bỏ hàng loạt** `useMemo`, `useCallback`, `memo` — code sạch hơn, ít bug hơn.
+- **Tối ưu chính xác hơn** những gì human có thể làm thủ công, kể cả memoize có điều kiện.
+- **Yên tâm về độ ổn định** — đã stable trên Next.js 15.3.1\+, Next.js 16, React 17/18/19, React Native.
+
+Điều kiện để tận dụng được tối đa: code của bạn phải tuân thủ **Rules of React**. Hãy dùng `eslint-plugin-react-hooks@latest` với preset `recommended-latest` để kiểm tra trước khi bật.

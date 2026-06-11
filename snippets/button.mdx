@@ -1,0 +1,18 @@
+---
+title: "Button"
+---
+
+export const Button = ({ label, href, variant = "primary" }) => {
+  const base = "inline-flex items-center justify-center px-4 py-2 rounded-lg text-sm font-medium no-underline transition-opacity hover:opacity-90 cursor-pointer";
+  const styles = {
+    primary: "bg-primary text-white",
+    secondary: "bg-zinc-950/10 text-zinc-950 dark:bg-white/10 dark:text-white",
+    outline: "border border-zinc-950/20 text-zinc-950 dark:border-white/20 dark:text-white",
+  };
+  const className = `${base} ${styles[variant] || styles.primary}`;
+
+  if (href) {
+    return <a href={href} className={className}>{label}</a>;
+  }
+  return <button className={className} onClick={() => alert(`Clicked: ${label}`)}>{label}</button>;
+};

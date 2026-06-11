@@ -2,6 +2,8 @@
 title: "Bạn muốn học gì?"
 ---
 
+import { Button } from "/snippets/button.mdx"
+
 <Columns cols={2}>
   <Column>
     <Card title="Javascript" icon="square-code" href="/javascript">
@@ -14,3 +16,9 @@ title: "Bạn muốn học gì?"
     </Card>
   </Column>
 </Columns>
+
+<div className="flex gap-2 mt-6">
+  <Button label="Bắt đầu với JavaScript" href="/javascript" />
+
+  <Button label="Học React" href="/react" variant="secondary" />
+</div>

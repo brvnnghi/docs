@@ -84,7 +84,8 @@
             "pages": [
               "next-js/index",
               "next-js/9-starter-notes",
-              "next-js/10-interview-questions"
+              "next-js/10-interview-questions",
+              "next-js/react-compiler"
             ]
           },
           {
