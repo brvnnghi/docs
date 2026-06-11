@@ -138,5 +138,13 @@
       "x": "https://x.com/yourcompany",
       "linkedin": "https://linkedin.com/company/yourcompany"
     }
+  },
+  "fonts": {
+    "family": "Space Grotesk"
+  },
+  "integrations": {
+    "ga4": {
+      "measurementId": "G-4N0LP4542T"
+    }
   }
 }
