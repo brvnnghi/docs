@@ -84,7 +84,7 @@
               "next-js/index",
               "next-js/9-starter-notes",
               "next-js/10-interview-questions",
-              "next-js/react-compiler"
+              "next-js/react-compiler-on-or-off"
             ]
           },
           {
@@ -92,7 +92,8 @@
             "pages": [
               "next-js/data-fetching",
               "next-js/build-your-own-image-picker",
-              "next-js/metadata"
+              "next-js/metadata",
+              "next-js/routing-advanced"
             ]
           },
           {

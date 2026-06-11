@@ -1,0 +1,374 @@
+---
+title: "Routing nâng cao trong Next.js qua ví dụ trang News Archive"
+sidebarTitle: "Routing nâng cao"
+description: "Đây chính là lúc bạn cần đến Route Groups, Dynamic Routes, Parallel Routes và error handling trong Next.js App Router."
+---
+
+Giả sử bạn đang xây dựng một trang **News Archive** — nơi người dùng có thể lọc bài viết theo năm, theo tháng, đồng thời vẫn thấy những bài mới nhất ở một cột bên cạnh, dù đang ở bất kỳ filter nào.
+
+Nghe đơn giản, nhưng nếu chỉ dùng routing cơ bản của Next.js, bạn sẽ nhanh chóng gặp một loạt câu hỏi khó:
+
+- URL `/archive/2024/03` thì `params` nhận như thế nào?
+- Làm sao để `/archive` (không có filter) vẫn hiển thị được?
+- Cột “bài mới nhất” và cột “filter” là hai vùng riêng — render song song thế nào?
+- Nếu người dùng gõ sai URL thì báo lỗi ra sao?
+
+Đây chính là lúc bạn cần đến **Route Groups**, **Dynamic Routes**, **Parallel Routes** và **error handling** trong Next.js App Router. Bài viết này sẽ đi qua từng khái niệm, gắn với ví dụ News Archive thực tế.
+
+## Các khái niệm cần biết
+
+### Route Groups — Nhóm route mà không ảnh hưởng URL
+
+Khi dự án lớn lên, bạn sẽ muốn gom các trang theo mục đích (marketing, admin, blog…) mà không làm thay đổi URL. Route Groups giải quyết điều đó bằng cách bọc tên thư mục trong dấu ngoặc đơn:
+
+```text
+/app
+-- /(marketing)
+---- /blog
+------ page.js       → URL: /blog
+---- /about
+------ page.js       → URL: /about
+---- layout.js       → Layout chung cho nhóm marketing
+```
+
+Thư mục `(marketing)` không xuất hiện trong URL, chỉ dùng để tổ chức file và chia sẻ layout nội bộ.
+
+### Dynamic Routes — Route với tham số thay đổi
+
+Dùng dấu ngoặc vuông để tạo segment động:
+
+| Cú pháp | Ví dụ URL khớp | Ghi chú |
+| :-- | :-- | :-- |
+| `[slug]` | `/blog/hello-world` | Một segment cố định |
+| `[...slug]` | `/blog/2014/05/slug` | Nhiều segment, nhưng không khớp `/blog` |
+| `[[...slug]]` | `/blog`, `/blog/2014/` ,`/blog/2014/09` , `/blog/2014/09/slug` | Nhiều segment, **có khớp cả trang blog gốc** |
+
+Với News Archive, ta cần `[[...filter]]` vì cần `/archive` (không có filter) cũng hoạt động được.
+
+```text
+/app/archive
+    ├── [[...filter]]
+
+// sẽ match như blog
+```
+
+### Parallel Routes — Render hai vùng song song
+
+Parallel Routes cho phép bạn render **nhiều trang độc lập trong cùng một layout**. Khai báo bằng thư mục bắt đầu bằng `@`:
+
+```text
+/archive
+-- /@archive        → slot "archive"
+-- /@latest         → slot "latest"
+-- layout.tsx       → nhận cả hai slot làm props
+```
+
+Layout sẽ nhận hai slot như props và render chúng song song — mỗi slot có thể loading, error, và navigate độc lập nhau.
+
+### Parallel Routes vs 2 component — khác nhau ở đâu?
+
+Nếu chỉ cần **render hai vùng UI**, dùng component bình thường là đủ:
+
+```tsx
+// Hoàn toàn hợp lệ, không cần Parallel Routes
+export default function ArchiveLayout() {
+  return (
+    <div>
+      <ArchiveFilter />  {/* component thường */}
+      <LatestNews />     {/* component thường */}
+    </div>
+  );
+}
+```
+
+Parallel Routes sinh ra để giải quyết thứ mà component thường **không làm được**:
+
+**1. Mỗi slot có loading/error state độc lập**
+
+Với component thường, nếu `ArchiveFilter` đang fetch data chậm, bạn phải chờ cả hai xong rồi mới render.
+
+Với Parallel Routes, mỗi slot có `loading.tsx` và `error.tsx` riêng — slot nào xong trước hiển thị trước, slot nào lỗi thì chỉ slot đó báo lỗi.
+
+**2. Mỗi slot có thể navigate độc lập**
+
+Đây là điểm mấu chốt. Khi URL đổi từ `/archive/2024` sang `/archive/2024/03`, **chỉ slot** `**@archive**` **re-render** vì chỉ nó mới quan tâm đến `params.filter`. Slot `@latest` không bị ảnh hưởng, không fetch lại, không unmount.
+
+Với component thường, cả layout re-render khi URL đổi.
+
+**3. Mỗi slot là một route thật sự — có thể navigate trực tiếp**
+
+Câu hỏi nhiều người hay thắc mắc: **có access riêng rẽ theo từng path không?**
+
+Câu trả lời là **không trực tiếp** — `@archive` và `@latest` không tạo ra URL `/archive/@archive` hay `/archive/@latest`. Dấu `@` báo cho Next.js biết đây là slot, không phải segment URL.
+
+Tuy nhiên, mỗi slot **theo dõi URL của chính nó**. Đây là lúc Parallel Routes thường đi kèm với **Intercepting Routes** — ví dụ điển hình là **modal photo**:
+
+```text
+/app
+├── @modal
+│   └── (.)photos/[id]   ← intercepting route
+├── photos
+│   └── [id]
+│       └── page.tsx
+└── layout.tsx
+```
+
+Khi click ảnh từ feed → URL đổi thành `/photos/123`, slot `@modal` “bắt” route đó và hiển thị modal, còn trang nền vẫn giữ nguyên.
+
+Nếu người dùng paste URL `/photos/123` vào tab mới → không có gì để intercept, hiển thị trang ảnh bình thường.
+
+**Tóm lại:**
+
+|  | Component thường | Parallel Routes |
+| :-- | :-- | :-- |
+| Render song song | ✅ | ✅ |
+| Loading/error độc lập | ❌ | ✅ |
+| Navigate độc lập | ❌ | ✅ |
+| Truy cập qua URL riêng | ❌ | ❌ (nhưng kết hợp với Intercepting Routes thì có) |
+
+Dùng component thường khi chỉ cần chia layout. Dùng Parallel Routes khi mỗi vùng cần **lifecycle độc lập** với URL.
+
+## Xây dựng trang News Archive
+
+### Cấu trúc thư mục
+
+```text
+/app/archive
+├── @archive
+│   ├── [[...filter]]
+│   │   └── page.tsx
+│   ├── error.tsx
+│   └── not-found.tsx
+├── @latest
+│   ├── page.tsx
+│   └── default.tsx
+├── layout.tsx
+└── not-found.tsx
+```
+
+### Bước 1: Layout nhận hai slot
+
+`layout.tsx` nhận `@archive` và `@latest` như props thông thường:
+
+```tsx app/archive/layout.tsx
+export default function ArchiveLayout({
+  archive,
+  latest,
+}: {
+  archive: React.ReactNode;
+  latest: React.ReactNode;
+}) {
+  return (
+    <div className="archive-layout">
+      <h1>News Archive</h1>
+      <div className="archive-grid">
+        <section id="archive-filter">{archive}</section>
+        <aside id="archive-latest">{latest}</aside>
+      </div>
+    </div>
+  );
+}
+```
+
+`@latest/page.tsx` luôn hiển thị bài mới nhất, không phụ thuộc vào filter đang chọn.
+
+`@latest/default.tsx` re-export lại `page.tsx` để làm fallback khi hard navigate:
+
+```jsx app/archive/@latest/default.tsx
+export { default } from './page'
+```
+
+### Bước 2: Trang filter với catch-all
+
+```tsx app/archive/@archive/[[...filter]]/page.tsx
+import { getNewsForYear, getNewsForYearAndMonth } from '@/lib/news';
+import NewsList from '@/components/news-list';
+import Link from 'next/link';
+
+export default function FilteredNewsPage({
+  params,
+}: {
+  params: { filter?: string[] };
+}) {
+  const filter = params.filter;
+  const selectedYear = filter?.[0];
+  const selectedMonth = filter?.[1];
+
+  // Xác định dữ liệu cần hiển thị dựa theo filter
+  let news;
+  let links = getAvailableNewsYears();
+
+  if (selectedYear && !selectedMonth) {
+    news = getNewsForYear(selectedYear);
+    links = getAvailableNewsMonths(selectedYear);
+  }
+
+  if (selectedYear && selectedMonth) {
+    news = getNewsForYearAndMonth(selectedYear, selectedMonth);
+    links = [];
+  }
+
+  return (
+    <>
+      <nav>
+        <ul>
+          {links.map((link) => {
+            const href = selectedYear
+              ? `/archive/${selectedYear}/${link}`
+              : `/archive/${link}`;
+            return (
+              <li key={link}>
+                <Link href={href}>{link}</Link>
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
+
+      {news && news.length > 0 ? (
+        <NewsList news={news} />
+      ) : (
+        <p>Không tim thấy bài viết.</p>
+      )}
+    </>
+  );
+}
+```
+
+**Giải thích logic** `params.filter`**:**
+
+- Truy cập `/archive` → `filter` là `undefined`
+  - Hiển thị: “Không tim thấy bài viết.”
+- Truy cập `/archive/2024` → `filter` là `['2024']`
+- Truy cập `/archive/2024/03` → `filter` là `['2024', '03']`
+
+Nhờ `[[...filter]]`, tất cả ba trường hợp đều được xử lý trong một file duy nhất.
+
+### Bước 3: Xử lý lỗi và not-found
+
+Có hai loại “không tìm thấy” cần phân biệt:
+
+**Không tìm thấy bài viết** (năm/tháng hợp lệ nhưng không có bài):
+
+```tsx app/archive/@archive/not-found.tsx
+export default function ArchiveNotFound() {
+  return <p>Không có bài viết nào trong khoảng thời gian này.</p>;
+}
+```
+
+Trong page, gọi `notFound()` khi cần:
+
+```tsx
+import { notFound } from 'next/navigation';
+
+if (selectedYear && !getAvailableNewsYears().includes(selectedYear)) {
+  notFound();
+}
+```
+
+**Lỗi không mong muốn** (params sai hoàn toàn, lỗi server…):
+
+```tsx app/archive/@archive/error.tsx
+'use client'; // error boundary bắt buộc phải là Client Component
+
+export default function ArchiveError({ error }: { error: Error }) {
+  return (
+    <div>
+      <h2>Đã có lỗi xảy ra</h2>
+      <p>{error.message}</p>
+    </div>
+  );
+}
+```
+
+> **Lưu ý:** `error.tsx` **bắt buộc phải là Client Component** (`'use client'`). Đây là yêu cầu của Next.js vì error boundary sử dụng React state nội bộ.
+
+## Mở rộng: Tại sao đặt `not-found.tsx` ở hai chỗ?
+
+Trong cấu trúc trên có hai file `not-found.tsx`:
+
+```text
+/archive
+├── @archive
+│   └── not-found.tsx   ← (1)
+└── not-found.tsx        ← (2)
+```
+
+- **(1)** `@archive/not-found.tsx`: Chỉ ảnh hưởng slot `@archive`. Khi gọi `notFound()` trong trang filter, **chỉ vùng archive báo lỗi**, còn cột `@latest` vẫn hiển thị bình thường.
+- **(2)** `archive/not-found.tsx`: Ảnh hưởng toàn bộ trang `/archive`. Dùng khi cả route không tồn tại.
+
+Nếu `@latest` gọi `notFound()` — ví dụ không fetch được bài mới nào — Next.js sẽ **bubble up** lên `not-found.tsx` gần nhất ở cấp cha, tức là `(2)`.
+
+Nếu xóa `(2)`, lỗi sẽ tiếp tục bubble up lên tận `app/not-found.tsx` — trang 404 toàn site, trông rất lạ khi chỉ có một slot bị lỗi.
+
+### Còn một trường hợp nữa
+
+Nếu người dùng truy cập một path **không tồn tại hoàn toàn** — ví dụ `/archive/something/weird/invalid/url`
+
+… thì bắt lỗi nào hoàn toàn là **quyết định thiết kế của bạn**, không có quy tắc bắt buộc nào của Next.js cả.
+
+Với `/archive/something/weird/invalid/url`, bạn có thể chọn:
+
+- `throw new Error()` → `error.tsx` xử lý trong @archive
+- `notFound()` → `not-found.tsx` xử lý
+- Hoặc thậm chí **render một UI bình thường** kiểu “không tìm thấy kết quả” mà không cần route nào cả
+
+Next.js chỉ cung cấp công cụ. Còn **ngữ nghĩa** — “đây là lỗi” hay “đây là không tìm thấy” — là do bạn tự định nghĩa cho ứng dụng của mình.
+
+Thường thì convention phổ biến là:
+
+- `notFound()` cho những thứ **có thể không tồn tại một cách bình thường** (bài viết bị xóa, filter không có kết quả…)
+- `throw error` cho những thứ **không bao giờ nên xảy ra** (URL bị tamper, data corrupt…)
+
+Nhưng đó cũng chỉ là convention, không phải luật.
+
+Đây là điểm mạnh của Parallel Routes — từng slot có thể xử lý trạng thái lỗi/loading độc lập mà không ảnh hưởng lẫn nhau.
+
+## Mở rộng: `default.tsx` — Fallback cho hard navigation
+
+Parallel Routes xử lý navigation theo hai cách khác nhau:
+
+**Soft navigation** (click `<Link>`): Next.js giữ nguyên state của slot không match — gọi là "sticky". Dù URL đổi thành `/archive/2024`, slot `@latest` vẫn hiển thị nội dung cũ mà không cần render lại.
+
+**Hard navigation** (reload, paste URL, mở tab mới): Next.js không còn in-memory state. Với mỗi slot, nó tìm theo thứ tự:
+
+1. `page.tsx` khớp với URL hiện tại
+2. `default.tsx`
+3. Không có → **404**
+
+Trong ví dụ News Archive, khi hard navigate vào `/archive/2024`, slot `@latest` không có `2024/page.tsx` nên Next.js cần `default.tsx` làm fallback. Nếu không có, trang sẽ trả về 404 dù `@archive` hoàn toàn hợp lệ.
+
+Cách đơn giản nhất là re-export `page.tsx`:
+
+```text filename
+// app/archive/@latest/default.tsx
+export { default } from './page'
+```
+
+Không cần duplicate code — `default.tsx` và `page.tsx` cùng render một component, nhưng Next.js dùng đúng file cho đúng trường hợp.
+
+> **Lưu ý:** `@archive` không cần `default.tsx` vì `[[...filter]]` là catch-all — nó tự khớp với mọi URL kể cả khi không có filter, nên không bao giờ rơi vào trạng thái "không tìm thấy gì để render".
+
+## Best practices
+
+**Mỗi slot trong Parallel Routes nên có** `**default.tsx**`**.** Slot không có `default.tsx` sẽ trả về 404 khi hard navigate vào bất kỳ URL nào mà slot đó không có `page.tsx` tương ứng. Ngoại lệ duy nhất là slot đã dùng catch-all route `[[...slug]]` — vì catch-all tự khớp mọi URL rồi.
+
+**Dùng** `**[[...slug]]**` **thay** `**[...slug]**` **khi cần khớp cả trang gốc.** Nếu dùng `[...slug]`, bạn sẽ cần tạo thêm `page.tsx` ở thư mục cha để xử lý `/archive` — dễ gây trùng lặp logic.
+
+**Đặt** `**error.tsx**` **gần với nơi có thể xảy ra lỗi.** Đặt trong slot `@archive` thay vì ngoài layout giúp lỗi được cô lập, không “nuốt” cả trang.
+
+**Không nên dùng Parallel Routes cho mọi thứ.** Chỉ dùng khi thực sự cần render hai vùng độc lập trong cùng một layout. Nếu chỉ cần chia layout đơn giản, dùng component thông thường là đủ.
+
+**Validate params trước khi query.** Với dynamic routes, `params` đến từ URL nên không thể tin tưởng hoàn toàn. Luôn kiểm tra giá trị hợp lệ trước khi truyền vào hàm query.
+
+## Tóm tắt
+
+Qua ví dụ News Archive, bạn đã thấy cách kết hợp các tính năng routing nâng cao của Next.js App Router:
+
+- **Route Groups** `(folder)` — tổ chức file mà không thay đổi URL
+- **Dynamic Routes** `[[...filter]]` — xử lý nhiều cấp URL trong một trang
+- **Parallel Routes** `@slot` — render hai vùng song song, độc lập trong cùng layout
+- **Error & Not-found handling** — phân tầng theo từng slot để cô lập lỗi
+- `**default.tsx**` — fallback cho hard navigation, mỗi slot cần có trừ khi đã dùng catch-all
+
+Những bước tiếp theo có thể khám phá: **Intercepting Routes** (mở modal khi click ảnh mà không mất trang nền), hoặc kết hợp Parallel Routes với **Server Actions** để xử lý form phức tạp.
